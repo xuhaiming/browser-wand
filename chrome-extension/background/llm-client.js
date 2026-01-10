@@ -747,6 +747,377 @@ Please search for this information and provide a comprehensive answer.`;
 }
 
 /**
+ * Detects if the search query is looking for news/current events with timeline intent
+ * @param {string} query - The search query
+ * @returns {boolean} - True if news timeline search intent
+ */
+export function detectNewsTimelineIntent(query) {
+  const newsPatterns = [
+    /(?:find|search|get|show)\s+(?:me\s+)?(?:the\s+)?(?:latest|recent|current|new)\s+(?:news|information|updates?|articles?)/i,
+    /(?:find|search|get|show)\s+(?:me\s+)?(?:\w+\s+)?(?:news|articles?|stories?|posts?|updates?)\s+(?:about|on|for|related)/i,
+    /(?:find|search|get|show)\s+(?:me\s+)?(?:relevant|related|similar|more)\s+(?:news|articles?|stories?|information|content)/i,
+    /(?:news|updates?)\s+(?:background|history|timeline|evolution|development)/i,
+    /(?:background|history|timeline|context)\s+(?:of|on|about|for)/i,
+    /(?:what|how)\s+(?:is|are|was|were|happened)/i,
+    /(?:timeline|chronolog|history)\s+(?:of|about|for)/i,
+  ];
+
+  const newsKeywords = [
+    'relevant news',
+    'related news',
+    'similar news',
+    'more news',
+    'find news',
+    'related articles',
+    'similar articles',
+    'news about',
+    'news on',
+    'current events',
+    'latest news',
+    'recent news',
+    'background',
+    'timeline',
+    'history of',
+    'evolution of',
+    'development of',
+  ];
+
+  const lowerQuery = query.toLowerCase();
+
+  // Check patterns
+  for (const pattern of newsPatterns) {
+    if (pattern.test(lowerQuery)) {
+      return true;
+    }
+  }
+
+  // Check keywords
+  for (const keyword of newsKeywords) {
+    if (lowerQuery.includes(keyword)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Performs a news timeline search using Gemini API with Google Search grounding
+ * Searches for current news background and returns events in timeline format
+ * @param {string} apiKey - API key for authentication
+ * @param {string} searchQuery - The search query from user
+ * @param {Object} context - Optional context from current page
+ * @param {string} [model] - Optional model ID to use
+ * @returns {Promise<Object>} - Search results with timeline events and background summary
+ */
+export async function newsTimelineSearch(apiKey, searchQuery, context, model) {
+  const modelId = model || API_CONFIG.model;
+  const apiUrl = `${API_CONFIG.baseUrl}/models/${modelId}:generateContent?key=${apiKey}`;
+
+  console.log('[Browser Wand] newsTimelineSearch: Query:', searchQuery);
+
+  const systemPrompt = `You are a news research assistant using Google Search to find current news, background information, and historical context.
+
+YOUR TASK:
+Search the web for news and background information about the topic. Provide a comprehensive timeline of events and developments.
+
+CRITICAL INSTRUCTIONS:
+1. Use Google Search to find the most recent and relevant news articles
+2. Research the background and history of the topic
+3. Create a chronological timeline of key events and developments
+4. For EACH event, include:
+   - date: The date or time period (e.g., "January 2024", "2 days ago", "Yesterday")
+   - title: A concise headline describing the event
+   - description: A brief explanation (1-2 sentences)
+   - source: The source name
+   - url: The source URL if available
+   - importance: "high", "medium", or "low" based on significance
+5. Include both recent news and relevant historical context
+6. Sort events chronologically from most recent to oldest
+7. Provide a brief background summary at the beginning
+
+RESPONSE FORMAT (JSON):
+{
+  "type": "news_timeline",
+  "topic": "The main topic being researched",
+  "backgroundSummary": "A 2-3 paragraph summary providing context and background on the topic",
+  "currentStatus": "A brief summary of the current situation or latest developments",
+  "timeline": [
+    {
+      "date": "January 10, 2024",
+      "title": "Event headline",
+      "description": "Brief description of what happened",
+      "source": "Source name",
+      "url": "https://...",
+      "importance": "high"
+    }
+  ],
+  "sources": [
+    {"title": "Source title", "url": "URL"}
+  ]
+}
+
+Aim for 5-10 timeline events covering both recent developments and relevant history.`;
+
+  const userMessage = `Research the following topic and provide a news timeline with background:
+
+Query: ${searchQuery}
+${context?.url ? `Context from current page: ${context.url}` : ''}
+${context?.pageTitle ? `Page title: ${context.pageTitle}` : ''}
+${context?.selectedText ? `Selected text: ${context.selectedText}` : ''}
+
+Please search for current news and background information, then create a comprehensive timeline.`;
+
+  const magicBarMaxTokens = Math.max(API_CONFIG.maxOutputTokens, 8192);
+
+  const requestBody = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: userMessage }],
+      },
+    ],
+    tools: [
+      {
+        googleSearch: {},
+      },
+    ],
+    generationConfig: {
+      maxOutputTokens: magicBarMaxTokens,
+      temperature: 0.5,
+    },
+  };
+
+  console.log('[Browser Wand] newsTimelineSearch: Calling Gemini API with Google Search grounding...');
+
+  let response;
+  try {
+    response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (fetchError) {
+    console.error('[Browser Wand] newsTimelineSearch Fetch Error:', fetchError);
+    throw new Error(`Network error: ${fetchError.message}`);
+  }
+
+  console.log('[Browser Wand] newsTimelineSearch Response Status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('[Browser Wand] newsTimelineSearch API Error:', errorText);
+    throw new Error(`API request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  console.log('[Browser Wand] newsTimelineSearch: Response received');
+
+  return parseNewsTimelineResponse(data);
+}
+
+/**
+ * Parses news timeline response from Gemini API
+ * @param {Object} data - Full Gemini API response
+ * @returns {Object} - Parsed timeline result
+ */
+function parseNewsTimelineResponse(data) {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    console.warn('[Browser Wand] parseNewsTimelineResponse: No candidates in response');
+    return {
+      type: 'news_timeline',
+      topic: '',
+      backgroundSummary: 'No results found',
+      currentStatus: '',
+      timeline: [],
+      sources: [],
+    };
+  }
+
+  // Extract grounding metadata for URLs
+  const groundingMetadata = candidate.groundingMetadata;
+  const groundingChunks = groundingMetadata?.groundingChunks || [];
+
+  console.log('[Browser Wand] parseNewsTimelineResponse: Grounding chunks:', groundingChunks.length);
+
+  // Extract text content from LLM response
+  const textParts = candidate.content?.parts?.filter((part) => part.text)?.map((part) => part.text) || [];
+  const textContent = textParts.join('');
+
+  console.log('[Browser Wand] parseNewsTimelineResponse: LLM response:', textContent.substring(0, 500));
+
+  let parsedResult;
+  try {
+    let cleanedResponse = textContent.trim();
+
+    // Remove markdown code block wrapper if present
+    const codeBlockMatch = cleanedResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      cleanedResponse = codeBlockMatch[1].trim();
+    }
+
+    // Find the start of JSON object
+    const jsonStartIndex = cleanedResponse.indexOf('{');
+    if (jsonStartIndex === -1) {
+      throw new Error('No JSON object found');
+    }
+
+    const jsonPart = cleanedResponse.substring(jsonStartIndex);
+    const jsonEndIndex = findJsonEndIndex(jsonPart);
+
+    if (jsonEndIndex !== -1) {
+      const jsonStr = jsonPart.substring(0, jsonEndIndex);
+      parsedResult = JSON.parse(jsonStr);
+    } else {
+      console.warn('[Browser Wand] parseNewsTimelineResponse: JSON appears truncated, attempting repair');
+      parsedResult = repairTruncatedNewsJson(jsonPart);
+    }
+  } catch (e) {
+    console.warn('[Browser Wand] parseNewsTimelineResponse: Failed to parse JSON:', e.message);
+    parsedResult = {
+      type: 'news_timeline',
+      topic: '',
+      backgroundSummary: textContent || 'Search completed. Results may be incomplete.',
+      currentStatus: '',
+      timeline: [],
+      sources: [],
+    };
+  }
+
+  // Enrich timeline with grounded URLs
+  if (parsedResult.timeline && parsedResult.timeline.length > 0) {
+    parsedResult.timeline = enrichTimelineWithGrounding(parsedResult.timeline, groundingChunks);
+  }
+
+  // Add grounded sources if not present
+  const groundedSources = groundingChunks
+    .filter((chunk) => chunk.web?.uri)
+    .map((chunk) => ({
+      title: chunk.web.title || 'Source',
+      url: chunk.web.uri,
+    }));
+
+  if (groundedSources.length > 0 && (!parsedResult.sources || parsedResult.sources.length === 0)) {
+    parsedResult.sources = groundedSources;
+  }
+
+  // Ensure type is set
+  parsedResult.type = 'news_timeline';
+
+  return parsedResult;
+}
+
+/**
+ * Attempts to repair truncated news timeline JSON
+ * @param {string} truncatedJson - The truncated JSON string
+ * @returns {Object} - Best-effort parsed result
+ */
+function repairTruncatedNewsJson(truncatedJson) {
+  const result = {
+    type: 'news_timeline',
+    topic: '',
+    backgroundSummary: '',
+    currentStatus: '',
+    timeline: [],
+    sources: [],
+  };
+
+  // Try to extract topic
+  const topicMatch = truncatedJson.match(/"topic"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (topicMatch) {
+    result.topic = topicMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+  }
+
+  // Try to extract backgroundSummary
+  const summaryMatch = truncatedJson.match(/"backgroundSummary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (summaryMatch) {
+    result.backgroundSummary = summaryMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+  }
+
+  // Try to extract currentStatus
+  const statusMatch = truncatedJson.match(/"currentStatus"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (statusMatch) {
+    result.currentStatus = statusMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+  }
+
+  // Try to extract timeline events
+  const timelineMatch = truncatedJson.match(/"timeline"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
+  if (timelineMatch) {
+    const timelineStr = timelineMatch[1];
+    const eventMatches = timelineStr.match(/\{[^{}]*\}/g);
+    if (eventMatches) {
+      eventMatches.forEach(eventStr => {
+        try {
+          const event = JSON.parse(eventStr);
+          if (event.title || event.date) {
+            result.timeline.push(event);
+          }
+        } catch {
+          // Skip invalid events
+        }
+      });
+    }
+  }
+
+  console.log('[Browser Wand] repairTruncatedNewsJson: Recovered', {
+    hasTopic: !!result.topic,
+    summaryLength: result.backgroundSummary.length,
+    timelineCount: result.timeline.length,
+  });
+
+  return result;
+}
+
+/**
+ * Enriches timeline events with URLs from grounding metadata
+ * @param {Array} timeline - Timeline events from LLM response
+ * @param {Array} groundingChunks - Grounding chunks with URLs
+ * @returns {Array} - Timeline events with URLs
+ */
+function enrichTimelineWithGrounding(timeline, groundingChunks) {
+  const urls = groundingChunks
+    .filter((chunk) => chunk.web?.uri)
+    .map((chunk) => ({
+      uri: chunk.web.uri,
+      title: chunk.web.title || '',
+    }));
+
+  const usedUrls = new Set();
+
+  return timeline.map(event => {
+    // If event already has a valid URL, keep it
+    if (event.url && event.url.startsWith('http')) {
+      return event;
+    }
+
+    // Try to find a matching URL from grounding
+    for (const urlInfo of urls) {
+      if (usedUrls.has(urlInfo.uri)) continue;
+
+      const titleLower = (urlInfo.title || '').toLowerCase();
+      const eventTitle = (event.title || '').toLowerCase();
+
+      // Check for title word overlap
+      const eventWords = eventTitle.split(/\s+/).filter(w => w.length > 3);
+      const matchingWords = eventWords.filter(w => titleLower.includes(w));
+
+      if (matchingWords.length >= 2) {
+        usedUrls.add(urlInfo.uri);
+        return { ...event, url: urlInfo.uri };
+      }
+    }
+
+    return event;
+  });
+}
+
+/**
  * Detects if the search query is looking for products/shopping
  * @param {string} query - The search query
  * @returns {boolean} - True if product search intent
@@ -1599,6 +1970,7 @@ function detectAspectRatio(query) {
  * @param {number} options.numberOfImages - Number of images to generate (1-4)
  * @param {string} options.aspectRatio - Aspect ratio (e.g., '1:1', '16:9')
  * @param {string} options.imageSize - Image size ('1K', '2K', '4K')
+ * @param {Object} options.context - Page context for contextual generation
  * @returns {Promise<Object>} - Generated images with metadata
  */
 export async function generateImages(apiKey, prompt, options = {}) {
@@ -1606,6 +1978,7 @@ export async function generateImages(apiKey, prompt, options = {}) {
     numberOfImages = 1,
     aspectRatio = IMAGE_GENERATION_CONFIG.defaultAspectRatio,
     imageSize = IMAGE_GENERATION_CONFIG.defaultImageSize,
+    context = {},
   } = options;
 
   const modelId = IMAGE_GENERATION_CONFIG.model;
@@ -1616,10 +1989,11 @@ export async function generateImages(apiKey, prompt, options = {}) {
     numberOfImages,
     aspectRatio,
     imageSize,
+    hasContext: !!context.pageTitle || !!context.url,
   });
 
-  // Build enhanced prompt for better image generation
-  const enhancedPrompt = buildImagePrompt(prompt, numberOfImages);
+  // Build enhanced prompt for better image generation, incorporating page context
+  const enhancedPrompt = buildImagePrompt(prompt, numberOfImages, context);
 
   const requestBody = {
     contents: [
@@ -1669,11 +2043,13 @@ export async function generateImages(apiKey, prompt, options = {}) {
 
 /**
  * Builds an enhanced prompt for image generation
+ * Uses condensed page context to prevent API timeouts
  * @param {string} userPrompt - Original user prompt
  * @param {number} numberOfImages - Number of images requested
+ * @param {Object} context - Page context for contextual generation (with majorContent)
  * @returns {string} - Enhanced prompt
  */
-function buildImagePrompt(userPrompt, numberOfImages) {
+function buildImagePrompt(userPrompt, numberOfImages, context = {}) {
   // Clean up the prompt - remove meta instructions
   let cleanPrompt = userPrompt
     .replace(/(?:create|generate|make|draw|design|produce)\s+(?:an?\s+)?(?:image|picture|photo|illustration|art|artwork|graphic|visual)\s+(?:of\s+)?/gi, '')
@@ -1683,6 +2059,31 @@ function buildImagePrompt(userPrompt, numberOfImages) {
   // If prompt became empty, use the original
   if (!cleanPrompt) {
     cleanPrompt = userPrompt;
+  }
+
+  // Build context string from page information - use condensed majorContent
+  const contextParts = [];
+  if (context.pageTitle) {
+    contextParts.push(`Page: ${context.pageTitle}`);
+  }
+  if (context.productName) {
+    contextParts.push(`Product: ${context.productName}`);
+  }
+  // Use majorContent for richer context (already limited in buildSearchContext)
+  if (context.majorContent) {
+    contextParts.push(`Content: ${context.majorContent}`);
+  } else if (context.selectedText) {
+    // Fallback to selectedText if majorContent not available
+    contextParts.push(`Selected: ${context.selectedText}`);
+  }
+
+  // If we have page context and the prompt seems to reference it (e.g., "this", "the page", "it")
+  const referencesContext = /\b(?:this|the\s+page|it|here|current|above|shown)\b/i.test(cleanPrompt);
+  if (contextParts.length > 0 && referencesContext) {
+    cleanPrompt = `Based on context:\n${contextParts.join('\n')}\n\nCreate: ${cleanPrompt}`;
+  } else if (contextParts.length > 0) {
+    // Even without explicit reference, include context if available
+    cleanPrompt = `Context: ${contextParts.join('. ')}.\n\nImage: ${cleanPrompt}`;
   }
 
   // Add style guidance if not present

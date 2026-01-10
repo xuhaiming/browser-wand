@@ -12,18 +12,21 @@ import { generateImageDisplayCode } from '../ui-generators/index.js';
  * @param {string} apiKey - API key for authentication
  * @param {string} prompt - User's image generation prompt
  * @param {Object} imageIntent - Detected image intent with options
+ * @param {Object} [context] - Optional context from current page
  * @returns {Promise<Object>} - Image generation result with display code
  */
-export async function handleImageGeneration(apiKey, prompt, imageIntent) {
+export async function handleImageGeneration(apiKey, prompt, imageIntent, context = {}) {
   console.log('[Browser Wand] handleImageGeneration started:', {
     numberOfImages: imageIntent.numberOfImages,
     aspectRatio: imageIntent.aspectRatio,
+    hasContext: !!context.pageTitle || !!context.url,
   });
 
   try {
     const imageResult = await generateImages(apiKey, prompt, {
       numberOfImages: imageIntent.numberOfImages,
       aspectRatio: imageIntent.aspectRatio,
+      context,
     });
 
     console.log('[Browser Wand] handleImageGeneration: Got result:', {

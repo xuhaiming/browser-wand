@@ -463,6 +463,234 @@ export function getMagicBarPanelStyles() {
 }
 
 /**
+ * News timeline specific styles
+ * @returns {string} - CSS styles string for news timeline
+ */
+function getNewsTimelineStyles() {
+  return `
+      .mb-topic {
+        font-size: 12px !important;
+        color: #22d3ee !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        margin-bottom: 8px !important;
+        font-weight: 600 !important;
+      }
+      .mb-current-status {
+        background: linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%) !important;
+        border: 1px solid rgba(34, 211, 238, 0.3) !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        margin-bottom: 20px !important;
+      }
+      .mb-current-status-label {
+        font-size: 11px !important;
+        color: #22d3ee !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        margin-bottom: 8px !important;
+        font-weight: 600 !important;
+      }
+      .mb-current-status-text {
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+        color: #e8e8e8 !important;
+      }
+      .mb-background {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 16px !important;
+        padding: 20px !important;
+        margin-bottom: 20px !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      }
+      .mb-background-title {
+        font-size: 13px !important;
+        color: #22d3ee !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        margin-bottom: 12px !important;
+        font-weight: 600 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .mb-background-title::before {
+        content: "📚" !important;
+      }
+      .mb-background-text {
+        font-size: 14px !important;
+        line-height: 1.7 !important;
+        color: #e8e8e8 !important;
+      }
+      .mb-background-text p {
+        margin: 0 0 12px 0 !important;
+      }
+      .mb-background-text p:last-child {
+        margin-bottom: 0 !important;
+      }
+      .mb-timeline-section {
+        margin-bottom: 20px !important;
+      }
+      .mb-timeline-title {
+        font-size: 13px !important;
+        color: #22d3ee !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        margin-bottom: 16px !important;
+        font-weight: 600 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .mb-timeline-title::before {
+        content: "📅" !important;
+      }
+      .mb-timeline {
+        position: relative !important;
+        padding-left: 24px !important;
+      }
+      .mb-timeline::before {
+        content: "" !important;
+        position: absolute !important;
+        left: 6px !important;
+        top: 0 !important;
+        bottom: 0 !important;
+        width: 2px !important;
+        background: linear-gradient(180deg, #22d3ee 0%, #06b6d4 50%, rgba(6, 182, 212, 0.3) 100%) !important;
+        border-radius: 1px !important;
+      }
+      .mb-timeline-event {
+        position: relative !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        margin-bottom: 16px !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        transition: all 0.2s !important;
+        cursor: pointer !important;
+      }
+      .mb-timeline-event::before {
+        content: "" !important;
+        position: absolute !important;
+        left: -22px !important;
+        top: 20px !important;
+        width: 12px !important;
+        height: 12px !important;
+        border-radius: 50% !important;
+        background: #22d3ee !important;
+        border: 2px solid #0f0c29 !important;
+        box-shadow: 0 0 8px rgba(34, 211, 238, 0.5) !important;
+      }
+      .mb-timeline-event.high::before {
+        background: #f43f5e !important;
+        box-shadow: 0 0 8px rgba(244, 63, 94, 0.5) !important;
+      }
+      .mb-timeline-event.medium::before {
+        background: #f59e0b !important;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.5) !important;
+      }
+      .mb-timeline-event.low::before {
+        background: #6b7280 !important;
+        box-shadow: 0 0 8px rgba(107, 114, 128, 0.3) !important;
+      }
+      .mb-timeline-event:hover {
+        background: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(34, 211, 238, 0.3) !important;
+        transform: translateX(4px) !important;
+      }
+      .mb-timeline-event:last-child {
+        margin-bottom: 0 !important;
+      }
+      .mb-event-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        margin-bottom: 8px !important;
+        gap: 12px !important;
+      }
+      .mb-event-date {
+        font-size: 11px !important;
+        color: #22d3ee !important;
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        padding: 4px 10px !important;
+        background: rgba(34, 211, 238, 0.15) !important;
+        border-radius: 6px !important;
+      }
+      .mb-event-importance {
+        font-size: 9px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+        padding: 3px 8px !important;
+        border-radius: 4px !important;
+        font-weight: 700 !important;
+      }
+      .mb-event-importance.high {
+        background: rgba(244, 63, 94, 0.2) !important;
+        color: #f43f5e !important;
+      }
+      .mb-event-importance.medium {
+        background: rgba(245, 158, 11, 0.2) !important;
+        color: #f59e0b !important;
+      }
+      .mb-event-importance.low {
+        background: rgba(107, 114, 128, 0.2) !important;
+        color: #9ca3af !important;
+      }
+      .mb-event-title {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        color: #fff !important;
+        line-height: 1.4 !important;
+        margin-bottom: 6px !important;
+      }
+      .mb-event-description {
+        font-size: 13px !important;
+        color: #a1a1aa !important;
+        line-height: 1.5 !important;
+        margin-bottom: 10px !important;
+      }
+      .mb-event-footer {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding-top: 10px !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+      }
+      .mb-event-source {
+        font-size: 11px !important;
+        color: #71717a !important;
+      }
+      .mb-event-link {
+        font-size: 11px !important;
+        color: #22d3ee !important;
+        text-decoration: none !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 4px !important;
+        transition: all 0.2s !important;
+      }
+      .mb-event-link:hover {
+        color: #67e8f9 !important;
+        text-decoration: underline !important;
+      }
+      .mb-event-link::after {
+        content: "→" !important;
+      }
+  `;
+}
+
+/**
+ * Get all News Timeline panel styles combined
+ * @returns {string} - Complete CSS styles string for News Timeline panel
+ */
+export function getNewsTimelinePanelStyles() {
+  return getBasePanelStyles({ width: 480, accentGradient: '#22d3ee 0%, #06b6d4 100%' })
+    + getInfoResultStyles()
+    + getNewsTimelineStyles();
+}
+
+/**
  * Image panel specific styles
  * @returns {string} - CSS styles string for image panel
  */

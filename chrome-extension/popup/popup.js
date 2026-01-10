@@ -758,12 +758,10 @@ document.addEventListener('DOMContentLoaded', () => {
       modifyBtn.classList.add('loading');
       modifyBtnIconDefault.classList.add('hidden');
       modifyBtnIconLoading.classList.remove('hidden');
-      modifyBtnText.textContent = text;
     } else {
       modifyBtn.classList.remove('loading');
       modifyBtnIconDefault.classList.remove('hidden');
       modifyBtnIconLoading.classList.add('hidden');
-      modifyBtnText.textContent = 'Modify Page';
     }
   }
 

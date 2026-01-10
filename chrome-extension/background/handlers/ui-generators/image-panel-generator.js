@@ -40,8 +40,7 @@ export function generateImageDisplayCode(imageResult, originalPrompt) {
         <div class="mb-logo">
           <div class="mb-logo-icon">🎨</div>
           <div>
-            <h3 class="mb-title">Image Generator</h3>
-            <div class="mb-subtitle">Nano Banana Pro</div>
+            <h3 class="mb-title">Magic Image</h3>
           </div>
         </div>
         <button class="mb-close" id="mb-close">×</button>

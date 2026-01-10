@@ -12,7 +12,7 @@ A Chrome extension that leverages AI to intelligently read, analyze, and modify 
 - **Translation**: Add side-by-side translations to web page content
 - **Reader Mode**: Extract and display only the main article content, hiding distractions
 - **Thematic Reskinning**: Transform the entire page's visual style to match a specific mood, era, or aesthetic (cyberpunk, vintage newspaper, children's book, etc.)
-- **Magic Bar (AI-Powered Web Search + Image Generation)**: Universal search feature that uses Gemini API with Google Search grounding to find any information - products, prices, facts, research, and more. Also supports AI image generation using Nano Banana Pro model
+- **Magic Bar (AI-Powered Web Search + Image Generation + News Timeline)**: Universal search feature that uses Gemini API with Google Search grounding to find any information - products, prices, facts, research, and more. Also supports AI image generation using Nano Banana Pro model. **News Timeline** feature provides comprehensive background information and chronological events for any topic
 - **Focus Mode (Eye Tracking)**: Use your webcam to track where you're looking, and automatically highlight and enlarge text at that location for easier reading
 - **Saved Scripts**: Save and reuse modification scripts across different pages
 - **Reset Changes**: Restore pages to their original state with one click
@@ -32,7 +32,7 @@ The extension automatically detects the type of task based on your prompt:
 | **Translation** | Savable Runtime | Adds side-by-side translations | "Translate to Chinese", "Add Spanish translation" |
 | **Summarization** | Runtime | Generates content summaries | "Summarize this article", "What are the main points?" |
 | **Analysis** | Runtime | Answers questions about the page | "How many images are on this page?", "List all headings" |
-| **Magic Bar** | Runtime | AI-powered web search for any information and image generation | "Best laptops under $1000", "Find similar products", "What is quantum computing?", "Generate an image of a sunset over mountains" |
+| **Magic Bar** | Runtime | AI-powered web search for any information, image generation, and news timeline | "Best laptops under $1000", "Find similar products", "What is quantum computing?", "Generate an image of a sunset over mountains", "News background and timeline about AI" |
 | **Focus Mode** | Runtime | Tracks eye gaze to highlight text | Click "Focus Mode" button in the extension |
 | **General** | Static | Any other modification request | "Add a red border to all images", "Highlight all links" |
 
@@ -116,8 +116,8 @@ For static modification tasks (styling, hiding elements, ad removal, etc.):
 - "What is this page about?"
 - "Give me the key points"
 
-**Magic Bar** (universal AI-powered search + image generation):
-Use the Magic Bar input field in the extension popup to search for anything or generate images:
+**Magic Bar** (universal AI-powered search + image generation + news timeline):
+Use the Magic Bar input field in the extension popup to search for anything, generate images, or research news topics:
 
 *Product Searches:*
 - "Find similar products to this"
@@ -133,6 +133,14 @@ Use the Magic Bar input field in the extension popup to search for anything or g
 - "Tips for learning Python"
 - "How to start a small business"
 
+*News Timeline (Background + Events):*
+- "News background and timeline about this topic"
+- "Find relevant news about climate change"
+- "Timeline of events for the tech industry"
+- "Background and history of cryptocurrency"
+- "Recent news and developments about space exploration"
+- "What's the current status and history of AI regulation?"
+
 *Image Generation (Nano Banana Pro):*
 - "Generate an image of a sunset over mountains"
 - "Create a picture of a futuristic city"
@@ -140,7 +148,7 @@ Use the Magic Bar input field in the extension popup to search for anything or g
 - "Make 3 images of different coffee cup designs"
 - "Generate a landscape image of a forest in autumn"
 
-The Magic Bar automatically detects whether you're searching for products, information, or requesting images and displays results in a beautiful sidebar panel with verified links from Google Search or generated images with download options.
+The Magic Bar automatically detects whether you're searching for products, information, news timelines, or requesting images and displays results in a beautiful sidebar panel with verified links from Google Search, chronological event timelines, or generated images with download options.
 
 **Focus Mode** (use the dedicated button):
 - Click the "Start Eye Tracking" button in the extension popup

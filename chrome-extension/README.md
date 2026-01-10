@@ -11,6 +11,9 @@ A Chrome extension that leverages AI to intelligently read, analyze, and modify 
 - **Content Summarization**: Get AI-generated summaries of articles and web pages
 - **Translation**: Add side-by-side translations to web page content
 - **Reader Mode**: Extract and display only the main article content, hiding distractions
+- **Thematic Reskinning**: Transform the entire page's visual style to match a specific mood, era, or aesthetic (cyberpunk, vintage newspaper, children's book, etc.)
+- **Magic Bar (AI-Powered Web Search + Image Generation)**: Universal search feature that uses Gemini API with Google Search grounding to find any information - products, prices, facts, research, and more. Also supports AI image generation using Nano Banana Pro model
+- **Focus Mode (Eye Tracking)**: Use your webcam to track where you're looking, and automatically highlight and enlarge text at that location for easier reading
 - **Saved Scripts**: Save and reuse modification scripts across different pages
 - **Reset Changes**: Restore pages to their original state with one click
 
@@ -24,15 +27,19 @@ The extension automatically detects the type of task based on your prompt:
 | **Ad Removal** | Static | Hides advertisements and promotional content | "Remove all ads", "Hide sponsored content", "Block banners" |
 | **Comment Removal** | Static | Hides comment sections and discussions | "Hide comments", "Remove discussion section" |
 | **Styling** | Static | Changes visual appearance | "Enable dark mode", "Make text larger", "Change background to blue" |
+| **Thematic Reskinning** | Static | Transforms entire page to match a mood/era | "Make this look like a cyberpunk terminal", "Vintage newspaper style" |
 | **Element Hiding** | Static | Hides specific elements | "Hide the header", "Remove the sidebar", "Hide navigation" |
-| **Translation** | Runtime | Adds side-by-side translations | "Translate to Chinese", "Add Spanish translation" |
+| **Translation** | Savable Runtime | Adds side-by-side translations | "Translate to Chinese", "Add Spanish translation" |
 | **Summarization** | Runtime | Generates content summaries | "Summarize this article", "What are the main points?" |
 | **Analysis** | Runtime | Answers questions about the page | "How many images are on this page?", "List all headings" |
+| **Magic Bar** | Runtime | AI-powered web search for any information and image generation | "Best laptops under $1000", "Find similar products", "What is quantum computing?", "Generate an image of a sunset over mountains" |
+| **Focus Mode** | Runtime | Tracks eye gaze to highlight text | Click "Focus Mode" button in the extension |
 | **General** | Static | Any other modification request | "Add a red border to all images", "Highlight all links" |
 
 **Script Categories:**
 - **Static Scripts**: Can be saved and re-applied to other pages (content extraction, ad removal, styling, etc.)
-- **Runtime Scripts**: Require fresh LLM API calls each time (translation, summarization, analysis)
+- **Savable Runtime Scripts**: Can be saved, but will execute fresh LLM API calls when applied (translation - saves the intent, processes content fresh each time)
+- **Runtime Scripts**: Require fresh LLM API calls each time and cannot be saved (summarization, analysis)
 
 ## Installation
 
@@ -79,6 +86,15 @@ For static modification tasks (styling, hiding elements, ad removal, etc.):
 - "Change the background color to light gray"
 - "Use a serif font for the article"
 
+**Thematic Reskinning**:
+- "Make this boring documentation look like a 1990s cyberpunk hacker terminal"
+- "Make this news site look like a cozy vintage newspaper"
+- "Turn this Wikipedia page into a children's book style"
+- "Give this page a synthwave/vaporwave aesthetic"
+- "Transform this into an 80s retro style"
+- "Make this look like a medieval manuscript"
+- "Apply a minimalist brutalist design"
+
 **Element Modification**:
 - "Hide the navigation bar"
 - "Remove all images"
@@ -100,6 +116,37 @@ For static modification tasks (styling, hiding elements, ad removal, etc.):
 - "What is this page about?"
 - "Give me the key points"
 
+**Magic Bar** (universal AI-powered search + image generation):
+Use the Magic Bar input field in the extension popup to search for anything or generate images:
+
+*Product Searches:*
+- "Find similar products to this"
+- "Best wireless headphones under $200"
+- "Compare prices for iPhone 15"
+- "Find alternatives to this product on Amazon"
+
+*Information Searches:*
+- "What is the latest news about AI?"
+- "How does machine learning work?"
+- "Best restaurants in San Francisco"
+- "Reviews for this product"
+- "Tips for learning Python"
+- "How to start a small business"
+
+*Image Generation (Nano Banana Pro):*
+- "Generate an image of a sunset over mountains"
+- "Create a picture of a futuristic city"
+- "Draw an illustration of a cat wearing a hat"
+- "Make 3 images of different coffee cup designs"
+- "Generate a landscape image of a forest in autumn"
+
+The Magic Bar automatically detects whether you're searching for products, information, or requesting images and displays results in a beautiful sidebar panel with verified links from Google Search or generated images with download options.
+
+**Focus Mode** (use the dedicated button):
+- Click the "Start Eye Tracking" button in the extension popup
+- Grant camera permission when prompted
+- Text where you look will be automatically highlighted and enlarged
+
 ## API Configuration
 
 The extension uses Gemini API for AI processing.
@@ -111,6 +158,22 @@ The extension uses Gemini API for AI processing.
 3. Click **Save Settings**
 
 The API key is stored locally in Chrome storage and is never transmitted except to the configured API endpoint.
+
+### Model Selection
+
+Browser Wand supports switching between different Gemini models:
+
+| Model | Description | Best For |
+|-------|-------------|----------|
+| **Gemini 3 Pro** | Best quality, slower | Complex modifications, detailed analysis |
+| **Gemini 3 Flash** | Fast and efficient | Quick tasks, simple modifications |
+
+To change the model:
+1. Click the **Settings** toggle in the extension popup
+2. Select your preferred model from the options
+3. Click **Save Settings**
+
+Your model preference is saved and will be used for all subsequent requests.
 
 ## Architecture
 
@@ -146,6 +209,7 @@ chrome-extension/
 │   │       ├── comment-removal.js          # Comment hiding prompt
 │   │       ├── element-hiding.js           # Element hiding prompt
 │   │       ├── styling.js                  # Visual styling prompt
+│   │       ├── thematic-reskinning.js      # Thematic reskinning prompt
 │   │       ├── translation.js              # Translation prompt
 │   │       ├── general.js                  # General modification prompt
 │   │       ├── summarize.js                # Summarization prompt
@@ -154,7 +218,10 @@ chrome-extension/
 │       └── html-to-markdown.js             # HTML to Markdown converter
 ├── content/
 │   ├── content.js                          # DOM reading, modification, state tracking
-│   └── content.css                         # Injected styles for UI elements
+│   ├── content.css                         # Injected styles for UI elements
+│   └── focus-tracker.js                    # Eye tracking for Focus Mode
+├── libs/
+│   └── (External libraries loaded via CDN) # WebGazer.js
 └── icons/
     ├── icon16.png                          # 16x16 toolbar icon
     ├── icon48.png                          # 48x48 extension icon
@@ -278,16 +345,60 @@ For large pages, the extension supports:
 - **Translation Batching**: Processes translations in batches of 15 text blocks
 - **Summary Combination**: Summarizes chunks individually, then combines results
 
+### Focus Mode (Eye Tracking)
+
+Focus Mode uses computer vision to track where you're looking, highlighting text at that location for easier reading.
+
+#### Eye Tracking (WebGazer.js)
+
+- Uses standard webcams - no special hardware required
+- Self-calibrates through user interactions (clicks, cursor movements)
+- Predicts gaze location in real-time
+- Supports data persistence between sessions
+
+#### Focus Highlight Features
+
+When text is detected at the gaze position:
+- **Text Enlargement**: Increases font size by 150% for easier reading
+- **Color Enhancement**: Changes text to high-contrast colors
+- **Background Highlight**: Adds a subtle background glow
+- **Smooth Transitions**: Animated focus changes for comfortable viewing
+- **Auto-Reset**: Text automatically returns to original style when eyes look away
+- **Continuous Reading**: Page scrolls slowly when looking at top or bottom edges for uninterrupted reading
+
+#### Privacy
+
+- All tracking runs locally in your browser
+- No video or tracking data is sent to any server
+- Camera access can be revoked at any time
+- No data persists after closing the tab (unless calibration saving is enabled)
+
 ### Configuration Constants
 
 Located in `config.js`:
 
 ```javascript
+AVAILABLE_MODELS = [
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Best quality, slower' },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Fast and efficient' },
+]
+
+DEFAULT_MODEL = 'gemini-3-pro-preview'
+
 API_CONFIG = {
   baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-  model: 'gemini-2.0-flash',
+  model: DEFAULT_MODEL,
   maxOutputTokens: 4096,
   temperature: 1.0
+}
+
+IMAGE_GENERATION_CONFIG = {
+  model: 'gemini-3-pro-image-preview',     // Nano Banana Pro model for image generation
+  maxImages: 4,                             // Maximum images per request (1-4)
+  defaultAspectRatio: '4:3',                // Default aspect ratio
+  defaultImageSize: '1K',                   // Default image size (1K, 2K, 4K)
+  supportedAspectRatios: ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'],
+  supportedImageSizes: ['1K', '2K', '4K']
 }
 
 CONTENT_LIMITS = {
@@ -303,8 +414,22 @@ CHUNKING_CONFIG = {
 }
 
 SCRIPT_CATEGORIES = {
-  STATIC_SCRIPT: 'STATIC_SCRIPT',   // Can be saved and reused
-  RUNTIME_LLM: 'RUNTIME_LLM'        // Requires fresh API call
+  STATIC_SCRIPT: 'STATIC_SCRIPT',     // Can be saved and reused directly
+  SAVABLE_RUNTIME: 'SAVABLE_RUNTIME', // Can be saved, executes fresh API call when applied
+  RUNTIME_LLM: 'RUNTIME_LLM'          // Cannot be saved, requires fresh API call
+}
+
+FOCUS_MODE_CONFIG = {
+  highlightRadius: 100,               // Pixels around gaze point to highlight
+  fontSizeMultiplier: 1.5,            // Text enlargement factor
+  transitionDuration: 200,            // Animation duration in ms
+  gazeSmoothing: 5,                   // Number of frames to average for smooth tracking
+  calibrationPoints: 9,               // Number of calibration points for eye tracking
+  scrollZonePercent: 0.2,             // Percentage of viewport for scroll zones (20% = top/bottom 20%)
+  scrollSpeed: 6,                     // Base pixels per frame to scroll
+  scrollAcceleration: 1.5,            // Multiplier for scroll speed closer to edge
+  scrollGazeDwellMs: 500,             // Time gaze must dwell in scroll zone before scrolling starts
+  gazeTimeoutMs: 300                  // Time without gaze update before resetting highlights
 }
 ```
 
@@ -341,6 +466,8 @@ SCRIPT_CATEGORIES = {
 | Content script not loading | Reload the extension from `chrome://extensions/` |
 | Timeout errors | The AI service may be slow; try again later |
 | Saved script not working | Script may be site-specific; try modifying prompts |
+| Focus Mode camera not working | Ensure camera permissions are granted in browser settings |
+| Eye tracking inaccurate | Complete the calibration by clicking on the screen while looking at cursor |
 
 ### Debug Mode
 

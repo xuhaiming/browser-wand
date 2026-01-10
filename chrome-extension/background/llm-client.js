@@ -3,15 +3,17 @@
  * Handles communication with the official Gemini API
  */
 
-import { API_CONFIG, CHUNKING_CONFIG } from './config.js';
+import { API_CONFIG, CHUNKING_CONFIG, IMAGE_GENERATION_CONFIG } from './config.js';
 
 /**
  * Builds the Gemini API URL with the API key
  * @param {string} apiKey - The API key for authentication
+ * @param {string} model - The model ID to use
  * @returns {string} - The complete API URL
  */
-function buildApiUrl(apiKey) {
-  return `${API_CONFIG.baseUrl}/models/${API_CONFIG.model}:generateContent?key=${apiKey}`;
+function buildApiUrl(apiKey, model) {
+  const modelId = model || API_CONFIG.model;
+  return `${API_CONFIG.baseUrl}/models/${modelId}:generateContent?key=${apiKey}`;
 }
 
 /**
@@ -101,13 +103,15 @@ function parseGeminiResponse(data) {
  * @param {string} apiKey - The API key for authentication
  * @param {string} systemPrompt - The system prompt
  * @param {string} userMessage - The user message
+ * @param {string} [model] - Optional model ID to use (defaults to API_CONFIG.model)
  * @returns {Promise<string>} - The LLM response content
  */
-export async function callLLM(apiKey, systemPrompt, userMessage) {
-  const apiUrl = buildApiUrl(apiKey);
+export async function callLLM(apiKey, systemPrompt, userMessage, model) {
+  const modelId = model || API_CONFIG.model;
+  const apiUrl = buildApiUrl(apiKey, modelId);
 
   console.log('[Browser Wand] LLM Request:', {
-    model: API_CONFIG.model,
+    model: modelId,
     systemPromptLength: systemPrompt.length,
     userMessageLength: userMessage.length,
   });
@@ -171,6 +175,7 @@ export async function callLLM(apiKey, systemPrompt, userMessage) {
 /**
  * Parses the modification response from the LLM
  * Handles both raw JSON and markdown-wrapped JSON
+ * Also handles truncated JSON by attempting to repair it
  * @param {string} response - The raw LLM response
  * @returns {Object} - Parsed modification data with code, css, and explanation
  */
@@ -178,9 +183,24 @@ export function parseModificationResponse(response) {
   let jsonStr = response.trim();
 
   // Try to extract JSON from markdown code block (handles ```json ... ``` format)
-  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  // Use greedy match to capture the entire JSON block
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*)\s*```/);
   if (jsonMatch) {
     jsonStr = jsonMatch[1].trim();
+    // If there are multiple code blocks, take the content up to the first closing ```
+    // by finding the actual JSON object boundaries
+    const endOfJson = findJsonEndIndex(jsonStr);
+    if (endOfJson !== -1) {
+      jsonStr = jsonStr.substring(0, endOfJson);
+    }
+  }
+
+  // Try to find JSON object if still not valid JSON
+  if (!jsonStr.startsWith('{')) {
+    const jsonObjectMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonObjectMatch) {
+      jsonStr = jsonObjectMatch[0];
+    }
   }
 
   try {
@@ -191,8 +211,18 @@ export function parseModificationResponse(response) {
       css: parsed.css || '',
       explanation: parsed.explanation || 'Modifications applied.',
     };
-  } catch {
-    // If JSON parsing fails, return the raw response as explanation
+  } catch (error) {
+    console.error('[Browser Wand] parseModificationResponse: JSON parse failed:', error.message);
+    console.error('[Browser Wand] parseModificationResponse: Raw response (first 500 chars):', response.substring(0, 500));
+
+    // Try to repair truncated JSON by extracting what we can
+    const repaired = repairTruncatedModificationJson(jsonStr);
+    if (repaired.code || repaired.css) {
+      console.log('[Browser Wand] parseModificationResponse: Successfully repaired truncated JSON');
+      return repaired;
+    }
+
+    // If repair failed, return the raw response as explanation
     return {
       code: '',
       css: '',
@@ -202,13 +232,127 @@ export function parseModificationResponse(response) {
 }
 
 /**
+ * Attempts to repair truncated modification JSON by extracting code and css fields
+ * @param {string} truncatedJson - The truncated JSON string
+ * @returns {Object} - Best-effort parsed result with code, css, and explanation
+ */
+function repairTruncatedModificationJson(truncatedJson) {
+  let code = '';
+  let css = '';
+  let explanation = 'Modifications applied (recovered from truncated response).';
+
+  // Try to extract code field (handles both "code" and "javascript" field names)
+  // The code is typically a function wrapped in a string, so we need to handle escaped characters
+  const codePatterns = [
+    /"(?:code|javascript)"\s*:\s*"((?:[^"\\]|\\.)*)"/s,
+    /"(?:code|javascript)"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*,\s*"css"|"\s*\}|$)/,
+  ];
+
+  for (const pattern of codePatterns) {
+    const codeMatch = truncatedJson.match(pattern);
+    if (codeMatch && codeMatch[1]) {
+      try {
+        // The code is JSON-escaped, so we need to unescape it
+        code = JSON.parse(`"${codeMatch[1]}"`);
+        break;
+      } catch {
+        // Try simple unescaping
+        code = codeMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+        break;
+      }
+    }
+  }
+
+  // Try to extract css field
+  const cssMatch = truncatedJson.match(/"css"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (cssMatch && cssMatch[1]) {
+    try {
+      css = JSON.parse(`"${cssMatch[1]}"`);
+    } catch {
+      css = cssMatch[1]
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\');
+    }
+  }
+
+  // Try to extract explanation field
+  const explanationMatch = truncatedJson.match(/"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (explanationMatch && explanationMatch[1]) {
+    try {
+      explanation = JSON.parse(`"${explanationMatch[1]}"`);
+    } catch {
+      explanation = explanationMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+    }
+  }
+
+  console.log('[Browser Wand] repairTruncatedModificationJson: Recovered', {
+    codeLength: code.length,
+    cssLength: css.length,
+    hasExplanation: explanation.length > 0,
+  });
+
+  return { code, css, explanation };
+}
+
+/**
+ * Finds the end index of a JSON object in a string
+ * Handles nested braces properly
+ * @param {string} str - String containing JSON
+ * @returns {number} - End index of JSON object, or -1 if not found
+ */
+function findJsonEndIndex(str) {
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        depth++;
+      } else if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          return i + 1;
+        }
+      }
+    }
+  }
+
+  return -1;
+}
+
+/**
  * Translates text blocks in batches using chunked LLM calls
  * @param {string} apiKey - API key for authentication
  * @param {string[]} textBlocks - Array of text blocks to translate
  * @param {string} targetLanguage - Target language for translation
+ * @param {string} [model] - Optional model ID to use
  * @returns {Promise<string[]>} - Array of translated text blocks
  */
-export async function translateInChunks(apiKey, textBlocks, targetLanguage) {
+export async function translateInChunks(apiKey, textBlocks, targetLanguage, model) {
   const batchSize = CHUNKING_CONFIG.translationBatchSize;
   const allTranslations = [];
 
@@ -233,7 +377,7 @@ REQUIRED OUTPUT FORMAT (exactly like this):
 ${JSON.stringify(batch)}`;
 
     try {
-      const response = await callLLM(apiKey, systemPrompt, userMessage);
+      const response = await callLLM(apiKey, systemPrompt, userMessage, model);
       const translations = parseTranslationResponse(response, batch.length);
       allTranslations.push(...translations);
     } catch (error) {
@@ -347,13 +491,14 @@ function parseTranslationResponse(response, expectedCount) {
  * @param {string} apiKey - API key for authentication
  * @param {string} markdownContent - The markdown content to summarize
  * @param {string} userPrompt - Original user prompt for context
+ * @param {string} [model] - Optional model ID to use
  * @returns {Promise<string>} - The combined summary
  */
-export async function summarizeInChunks(apiKey, markdownContent, userPrompt) {
+export async function summarizeInChunks(apiKey, markdownContent, userPrompt, model) {
   const maxChunkSize = CHUNKING_CONFIG.maxChunkSize;
 
   if (markdownContent.length <= maxChunkSize) {
-    return await summarizeSingleChunk(apiKey, markdownContent, userPrompt);
+    return await summarizeSingleChunk(apiKey, markdownContent, userPrompt, model);
   }
 
   const chunks = splitContentIntoChunks(markdownContent, maxChunkSize);
@@ -365,7 +510,8 @@ export async function summarizeInChunks(apiKey, markdownContent, userPrompt) {
     const chunkSummary = await summarizeSingleChunk(
       apiKey,
       chunks[i],
-      `Summarize this section (part ${i + 1} of ${maxChunks}):`
+      `Summarize this section (part ${i + 1} of ${maxChunks}):`,
+      model
     );
     chunkSummaries.push(chunkSummary);
   }
@@ -374,7 +520,7 @@ export async function summarizeInChunks(apiKey, markdownContent, userPrompt) {
     return chunkSummaries[0];
   }
 
-  const combinedSummary = await combineSummaries(apiKey, chunkSummaries, userPrompt);
+  const combinedSummary = await combineSummaries(apiKey, chunkSummaries, userPrompt, model);
   return combinedSummary;
 }
 
@@ -400,9 +546,10 @@ function stripCodeBlockWrapper(text) {
  * @param {string} apiKey - API key for authentication
  * @param {string} content - Content to summarize
  * @param {string} prompt - User prompt
+ * @param {string} [model] - Optional model ID to use
  * @returns {Promise<string>} - Summary text
  */
-async function summarizeSingleChunk(apiKey, content, prompt) {
+async function summarizeSingleChunk(apiKey, content, prompt, model) {
   const systemPrompt = `You are an expert content summarizer. Create concise, informative summaries that capture the key points and main ideas.
 
 RULES:
@@ -420,7 +567,7 @@ ${content}
 
 Provide a clear, well-structured summary:`;
 
-  const response = await callLLM(apiKey, systemPrompt, userMessage);
+  const response = await callLLM(apiKey, systemPrompt, userMessage, model);
   return stripCodeBlockWrapper(response);
 }
 
@@ -429,9 +576,10 @@ Provide a clear, well-structured summary:`;
  * @param {string} apiKey - API key for authentication
  * @param {string[]} summaries - Array of chunk summaries
  * @param {string} userPrompt - Original user prompt
+ * @param {string} [model] - Optional model ID to use
  * @returns {Promise<string>} - Combined final summary
  */
-async function combineSummaries(apiKey, summaries, userPrompt) {
+async function combineSummaries(apiKey, summaries, userPrompt, model) {
   const systemPrompt = `You are an expert content summarizer. Combine the following section summaries into one coherent, comprehensive summary.
 
 RULES:
@@ -449,8 +597,838 @@ ${summaries.map((s, i) => `--- Section ${i + 1} ---\n${s}`).join('\n\n')}
 
 Create a unified, comprehensive summary:`;
 
-  const response = await callLLM(apiKey, systemPrompt, userMessage);
+  const response = await callLLM(apiKey, systemPrompt, userMessage, model);
   return stripCodeBlockWrapper(response);
+}
+
+/**
+ * Performs a Magic Bar search using Gemini API with Google Search grounding
+ * This is a universal search feature that can search for any information online
+ * @param {string} apiKey - API key for authentication
+ * @param {string} searchQuery - The search query from user
+ * @param {Object} context - Optional context from current page
+ * @param {string} [model] - Optional model ID to use
+ * @returns {Promise<Object>} - Search results with answer and sources
+ */
+export async function magicBarSearch(apiKey, searchQuery, context, model) {
+  const modelId = model || API_CONFIG.model;
+  const apiUrl = `${API_CONFIG.baseUrl}/models/${modelId}:generateContent?key=${apiKey}`;
+
+  console.log('[Browser Wand] magicBarSearch: Query:', searchQuery);
+
+  // Detect if this is a product search
+  const isProductSearch = detectProductSearchIntent(searchQuery);
+  console.log('[Browser Wand] magicBarSearch: Is product search:', isProductSearch);
+
+  let systemPrompt;
+  let userMessage;
+
+  if (isProductSearch) {
+    systemPrompt = `You are a product research assistant using Google Search to find products and prices.
+
+YOUR TASK:
+Search for products based on the user's query and extract information from the search results.
+
+CRITICAL INSTRUCTIONS:
+1. Search for products across e-commerce sites (Amazon, eBay, Walmart, Target, AliExpress, Lazada, Shopee, etc.)
+2. For EACH product found in search results, extract:
+   - title: The exact product name as shown in the search result
+   - price: The price WITH currency symbol exactly as shown (e.g., "$29.99", "RM 99.00", "£45.00")
+   - source: The website name
+   - description: Brief description if available
+3. Prices often appear in search snippets - ALWAYS include them when visible
+4. Return 5-10 products maximum
+
+RESPONSE FORMAT (JSON):
+{
+  "type": "products",
+  "summary": "Brief summary of what was found",
+  "results": [
+    {"title": "Product Name", "price": "$XX.XX", "source": "Amazon", "description": "Brief description"}
+  ]
+}
+
+If a price is not visible, use empty string "" for price field.`;
+
+    userMessage = `Search for: ${searchQuery}
+${context?.url ? `Current page: ${context.url}` : ''}
+${context?.productName ? `Related to product: ${context.productName}` : ''}
+
+Find products with prices from search results.`;
+
+  } else {
+    systemPrompt = `You are a helpful research assistant using Google Search to find accurate, up-to-date information.
+
+YOUR TASK:
+Search the web and provide a comprehensive answer to the user's query.
+
+CRITICAL INSTRUCTIONS:
+1. Use Google Search to find current, accurate information
+2. Synthesize information from multiple sources into a clear, well-structured answer
+3. Include relevant facts, data, and insights from the search results
+4. Cite sources when providing specific information
+5. If the query is about recent events, prioritize recent sources
+6. Be factual and objective - don't speculate
+
+RESPONSE FORMAT (JSON):
+{
+  "type": "information",
+  "summary": "A clear, comprehensive answer to the query (2-4 paragraphs)",
+  "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
+  "sources": [
+    {"title": "Source title", "url": "URL if available", "snippet": "Relevant excerpt"}
+  ]
+}`;
+
+    userMessage = `Search query: ${searchQuery}
+${context?.url ? `Context from current page: ${context.url}` : ''}
+${context?.pageTitle ? `Page title: ${context.pageTitle}` : ''}
+${context?.selectedText ? `Selected text: ${context.selectedText}` : ''}
+
+Please search for this information and provide a comprehensive answer.`;
+  }
+
+  // Use higher token limit for Magic Bar to avoid truncation of search results
+  const magicBarMaxTokens = Math.max(API_CONFIG.maxOutputTokens, 8192);
+
+  const requestBody = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: userMessage }],
+      },
+    ],
+    tools: [
+      {
+        googleSearch: {},
+      },
+    ],
+    generationConfig: {
+      maxOutputTokens: magicBarMaxTokens,
+      temperature: 0.5,
+    },
+  };
+
+  console.log('[Browser Wand] magicBarSearch: Calling Gemini API with Google Search grounding...');
+
+  let response;
+  try {
+    response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (fetchError) {
+    console.error('[Browser Wand] magicBarSearch Fetch Error:', fetchError);
+    throw new Error(`Network error: ${fetchError.message}`);
+  }
+
+  console.log('[Browser Wand] magicBarSearch Response Status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('[Browser Wand] magicBarSearch API Error:', errorText);
+    throw new Error(`API request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  console.log('[Browser Wand] magicBarSearch: Response received');
+
+  // Parse the response based on search type
+  const result = parseMagicBarResponse(data, isProductSearch);
+
+  console.log('[Browser Wand] magicBarSearch: Parsed result type:', result.type);
+  return result;
+}
+
+/**
+ * Detects if the search query is looking for products/shopping
+ * @param {string} query - The search query
+ * @returns {boolean} - True if product search intent
+ */
+function detectProductSearchIntent(query) {
+  const productPatterns = [
+    /(?:buy|purchase|shop|order|find|get)\s+(?:a\s+|the\s+)?[\w\s]+(?:online|from|at)/i,
+    /(?:similar|related|comparable)\s+(?:products?|items?)/i,
+    /(?:compare|comparison)\s+(?:prices?|products?)/i,
+    /(?:price|cost|how\s+much)\s+(?:of|for|is)/i,
+    /(?:where\s+(?:to|can\s+i))\s+(?:buy|get|find|purchase)/i,
+    /(?:best|top|cheap|affordable|budget)\s+[\w\s]+(?:under|for|price)/i,
+    /(?:alternatives?|options?|recommendations?)\s+(?:for|to)/i,
+    /(?:amazon|ebay|walmart|lazada|shopee|aliexpress|etsy)/i,
+  ];
+
+  const lowerQuery = query.toLowerCase();
+  return productPatterns.some(pattern => pattern.test(lowerQuery));
+}
+
+/**
+ * Attempts to repair truncated JSON by extracting what we can from partial data
+ * @param {string} truncatedJson - The truncated JSON string
+ * @param {boolean} isProductSearch - Whether this is a product search result
+ * @returns {Object} - Best-effort parsed result
+ */
+function repairTruncatedJson(truncatedJson, isProductSearch) {
+  // Try to extract type field
+  const typeMatch = truncatedJson.match(/"type"\s*:\s*"([^"]+)"/);
+  const type = typeMatch ? typeMatch[1] : (isProductSearch ? 'products' : 'information');
+
+  // Try to extract summary field
+  const summaryMatch = truncatedJson.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const summary = summaryMatch ? summaryMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n') : '';
+
+  // Try to extract key points if present
+  const keyPoints = [];
+  const keyPointsMatch = truncatedJson.match(/"keyPoints"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
+  if (keyPointsMatch) {
+    const keyPointsStr = keyPointsMatch[1];
+    const pointMatches = keyPointsStr.match(/"((?:[^"\\]|\\.)*)"/g);
+    if (pointMatches) {
+      pointMatches.forEach(match => {
+        const point = match.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n');
+        if (point.trim()) {
+          keyPoints.push(point);
+        }
+      });
+    }
+  }
+
+  // Try to extract results/products if present
+  const results = [];
+  const resultsMatch = truncatedJson.match(/"results"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
+  if (resultsMatch) {
+    // Try to extract individual product objects
+    const resultsStr = resultsMatch[1];
+    const productMatches = resultsStr.match(/\{[^{}]*\}/g);
+    if (productMatches) {
+      productMatches.forEach(productStr => {
+        try {
+          const product = JSON.parse(productStr);
+          if (product.title) {
+            results.push(product);
+          }
+        } catch {
+          // Skip invalid products
+        }
+      });
+    }
+  }
+
+  console.log('[Browser Wand] repairTruncatedJson: Recovered', {
+    type,
+    summaryLength: summary.length,
+    keyPointsCount: keyPoints.length,
+    resultsCount: results.length,
+  });
+
+  return {
+    type,
+    summary: summary || 'Search completed. Some results may be incomplete due to response truncation.',
+    keyPoints,
+    results,
+    sources: [],
+  };
+}
+
+/**
+ * Parses Magic Bar response from Gemini API
+ * Handles truncated JSON responses gracefully by attempting to extract valid JSON
+ * @param {Object} data - Full Gemini API response
+ * @param {boolean} isProductSearch - Whether this was a product search
+ * @returns {Object} - Parsed search result
+ */
+function parseMagicBarResponse(data, isProductSearch) {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    console.warn('[Browser Wand] parseMagicBarResponse: No candidates in response');
+    return { type: 'error', summary: 'No results found', results: [], sources: [] };
+  }
+
+  // Check for truncation due to max tokens
+  const finishReason = candidate.finishReason;
+  const wasTruncated = finishReason === 'MAX_TOKENS';
+  if (wasTruncated) {
+    console.warn('[Browser Wand] parseMagicBarResponse: Response was truncated due to max tokens');
+  }
+
+  // Extract grounding metadata for URLs
+  const groundingMetadata = candidate.groundingMetadata;
+  const groundingChunks = groundingMetadata?.groundingChunks || [];
+
+  console.log('[Browser Wand] parseMagicBarResponse: Grounding chunks:', groundingChunks.length);
+
+  // Extract text content from LLM response
+  const textParts = candidate.content?.parts?.filter((part) => part.text)?.map((part) => part.text) || [];
+  const textContent = textParts.join('');
+
+  console.log('[Browser Wand] parseMagicBarResponse: LLM response:', textContent.substring(0, 500));
+
+  // Try to parse JSON response
+  let parsedResult;
+  try {
+    let cleanedResponse = textContent.trim();
+
+    // Remove markdown code block wrapper if present
+    const codeBlockMatch = cleanedResponse.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      cleanedResponse = codeBlockMatch[1].trim();
+    }
+
+    // Find the start of JSON object
+    const jsonStartIndex = cleanedResponse.indexOf('{');
+    if (jsonStartIndex === -1) {
+      throw new Error('No JSON object found');
+    }
+
+    // Extract just the JSON part starting from first {
+    const jsonPart = cleanedResponse.substring(jsonStartIndex);
+
+    // Use findJsonEndIndex to properly find the end of JSON even if truncated
+    const jsonEndIndex = findJsonEndIndex(jsonPart);
+
+    if (jsonEndIndex !== -1) {
+      // Found complete JSON object
+      const jsonStr = jsonPart.substring(0, jsonEndIndex);
+      parsedResult = JSON.parse(jsonStr);
+    } else {
+      // JSON is truncated - try to repair it
+      console.warn('[Browser Wand] parseMagicBarResponse: JSON appears truncated, attempting repair');
+      parsedResult = repairTruncatedJson(jsonPart, isProductSearch);
+    }
+  } catch (e) {
+    console.warn('[Browser Wand] parseMagicBarResponse: Failed to parse JSON:', e.message);
+    // Fall back to text response - strip any partial JSON and use as summary
+    let summaryText = textContent;
+    // Remove partial JSON from summary
+    const jsonStart = summaryText.indexOf('{');
+    if (jsonStart > 0) {
+      summaryText = summaryText.substring(0, jsonStart).trim();
+    }
+    if (!summaryText || summaryText.length < 20) {
+      summaryText = 'Search completed. Results may be incomplete due to response truncation.';
+    }
+    parsedResult = {
+      type: 'information',
+      summary: summaryText,
+      keyPoints: [],
+      sources: [],
+    };
+  }
+
+  // For product searches, enrich results with grounded URLs
+  if (isProductSearch && parsedResult.results) {
+    parsedResult.results = enrichProductsWithGrounding(parsedResult.results, groundingChunks);
+  }
+
+  // For information searches, add grounded sources
+  if (!isProductSearch) {
+    const groundedSources = groundingChunks
+      .filter((chunk) => chunk.web?.uri)
+      .map((chunk) => ({
+        title: chunk.web.title || 'Source',
+        url: chunk.web.uri,
+        snippet: '',
+      }));
+
+    if (groundedSources.length > 0 && (!parsedResult.sources || parsedResult.sources.length === 0)) {
+      parsedResult.sources = groundedSources;
+    }
+  }
+
+  return parsedResult;
+}
+
+/**
+ * Enriches product results with URLs from grounding metadata
+ * @param {Array} products - Products from LLM response
+ * @param {Array} groundingChunks - Grounding chunks with URLs
+ * @returns {Array} - Products with URLs
+ */
+function enrichProductsWithGrounding(products, groundingChunks) {
+  // Extract e-commerce URLs from grounding chunks
+  const ecommerceUrls = groundingChunks
+    .filter((chunk) => chunk.web?.uri)
+    .map((chunk) => ({
+      uri: chunk.web.uri,
+      title: chunk.web.title || '',
+      source: extractSourceFromUrl(chunk.web.uri) || extractSourceFromTitle(chunk.web.title),
+    }))
+    .filter((item) => item.source && item.source !== 'Web');
+
+  const usedUrls = new Set();
+  const enrichedProducts = [];
+
+  // Match products with grounded URLs
+  for (const product of products) {
+    const matchedUrl = findBestUrlMatch(product, ecommerceUrls, usedUrls);
+
+    if (matchedUrl) {
+      usedUrls.add(matchedUrl.uri);
+      enrichedProducts.push({
+        title: product.title,
+        price: product.price || '',
+        description: product.description || '',
+        url: matchedUrl.uri,
+        source: product.source || matchedUrl.source,
+      });
+    } else {
+      enrichedProducts.push({
+        title: product.title,
+        price: product.price || '',
+        description: product.description || '',
+        url: '',
+        source: product.source || '',
+      });
+    }
+  }
+
+  // Add remaining e-commerce URLs
+  for (const urlInfo of ecommerceUrls) {
+    if (usedUrls.has(urlInfo.uri)) continue;
+    if (enrichedProducts.length >= 10) break;
+
+    const priceInTitle = extractPriceFromText(urlInfo.title);
+
+    enrichedProducts.push({
+      title: cleanProductTitle(urlInfo.title) || `Product from ${urlInfo.source}`,
+      price: priceInTitle || '',
+      description: '',
+      url: urlInfo.uri,
+      source: urlInfo.source,
+    });
+    usedUrls.add(urlInfo.uri);
+  }
+
+  return enrichedProducts.filter((p) => p.title).slice(0, 10);
+}
+
+/**
+ * @deprecated Use enrichProductsWithGrounding instead
+ * Parses product search response with grounding metadata for valid URLs
+ * Combines LLM-extracted product info with real URLs from groundingChunks
+ * @param {Object} data - Full Gemini API response including groundingMetadata
+ * @returns {Array} - Array of product objects with valid URLs and prices
+ */
+function parseProductSearchWithGrounding(data) {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    console.warn('[Browser Wand] parseProductSearchWithGrounding: No candidates in response');
+    return [];
+  }
+
+  // Extract grounding chunks (real URLs from Google Search)
+  const groundingMetadata = candidate.groundingMetadata;
+  const groundingChunks = groundingMetadata?.groundingChunks || [];
+  const groundingSupports = groundingMetadata?.groundingSupports || [];
+  const webSearchQueries = groundingMetadata?.webSearchQueries || [];
+
+  console.log('[Browser Wand] parseProductSearchWithGrounding:', {
+    groundingChunks: groundingChunks.length,
+    groundingSupports: groundingSupports.length,
+    webSearchQueries,
+  });
+
+  // Extract text content from LLM response
+  const textParts = candidate.content?.parts?.filter((part) => part.text)?.map((part) => part.text) || [];
+  const textContent = textParts.join('');
+
+  console.log('[Browser Wand] parseProductSearchWithGrounding: LLM response text:', textContent.substring(0, 500));
+
+  // Parse products from LLM's JSON response (contains titles, prices, sources)
+  let llmProducts = [];
+  try {
+    llmProducts = parseProductSearchResponse(textContent);
+    console.log('[Browser Wand] parseProductSearchWithGrounding: Parsed', llmProducts.length, 'products from LLM');
+  } catch (e) {
+    console.warn('[Browser Wand] parseProductSearchWithGrounding: Failed to parse LLM products:', e);
+  }
+
+  // Extract e-commerce URLs from grounding chunks
+  const ecommerceUrls = groundingChunks
+    .filter((chunk) => chunk.web?.uri)
+    .map((chunk) => ({
+      uri: chunk.web.uri,
+      title: chunk.web.title || '',
+      source: extractSourceFromUrl(chunk.web.uri) || extractSourceFromTitle(chunk.web.title),
+    }))
+    .filter((item) => item.source && item.source !== 'Web'); // Only keep e-commerce URLs
+
+  console.log('[Browser Wand] parseProductSearchWithGrounding: Found', ecommerceUrls.length, 'e-commerce URLs in grounding');
+
+  // Strategy: Match LLM products with grounded URLs by source/title similarity
+  const finalProducts = [];
+  const usedUrls = new Set();
+
+  // First pass: Match LLM products with grounding URLs
+  for (const product of llmProducts) {
+    const matchedUrl = findBestUrlMatch(product, ecommerceUrls, usedUrls);
+
+    if (matchedUrl) {
+      usedUrls.add(matchedUrl.uri);
+      finalProducts.push({
+        title: product.title,
+        price: product.price || '',
+        description: product.description || '',
+        url: matchedUrl.uri,
+        source: product.source || matchedUrl.source,
+      });
+    }
+  }
+
+  // Second pass: Add remaining e-commerce URLs that weren't matched
+  // These may have price info in the title or be valid product pages
+  for (const urlInfo of ecommerceUrls) {
+    if (usedUrls.has(urlInfo.uri)) continue;
+    if (finalProducts.length >= 10) break;
+
+    // Extract price from title if available
+    const priceInTitle = extractPriceFromText(urlInfo.title);
+
+    finalProducts.push({
+      title: cleanProductTitle(urlInfo.title) || `Product from ${urlInfo.source}`,
+      price: priceInTitle || '',
+      description: '',
+      url: urlInfo.uri,
+      source: urlInfo.source,
+    });
+    usedUrls.add(urlInfo.uri);
+  }
+
+  // Filter to only include products with valid URLs
+  const validProducts = finalProducts.filter((p) => p.url && p.url.startsWith('http'));
+
+  console.log('[Browser Wand] parseProductSearchWithGrounding: Final products count:', validProducts.length);
+  return validProducts.slice(0, 10);
+}
+
+/**
+ * Finds the best matching URL for a product based on source and title
+ * @param {Object} product - Product from LLM response
+ * @param {Array} urls - Available e-commerce URLs
+ * @param {Set} usedUrls - URLs already assigned to products
+ * @returns {Object|null} - Best matching URL info or null
+ */
+function findBestUrlMatch(product, urls, usedUrls) {
+  const productSource = (product.source || '').toLowerCase();
+  const productTitle = (product.title || '').toLowerCase();
+
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const urlInfo of urls) {
+    if (usedUrls.has(urlInfo.uri)) continue;
+
+    const urlSource = (urlInfo.source || '').toLowerCase();
+    const urlTitle = (urlInfo.title || '').toLowerCase();
+    let score = 0;
+
+    // Exact source match is highest priority
+    if (productSource && urlSource && productSource === urlSource) {
+      score += 10;
+    } else if (productSource && urlSource && (productSource.includes(urlSource) || urlSource.includes(productSource))) {
+      score += 5;
+    }
+
+    // Title word overlap
+    if (productTitle && urlTitle) {
+      const productWords = productTitle.split(/\s+/).filter((w) => w.length > 3);
+      const matchingWords = productWords.filter((w) => urlTitle.includes(w));
+      score += matchingWords.length * 2;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = urlInfo;
+    }
+  }
+
+  // Require minimum score to avoid bad matches
+  return bestScore >= 3 ? bestMatch : null;
+}
+
+/**
+ * Extracts price from text (title or snippet)
+ * @param {string} text - Text to extract price from
+ * @returns {string} - Extracted price or empty string
+ */
+function extractPriceFromText(text) {
+  if (!text) return '';
+
+  // Common price patterns
+  const patterns = [
+    /[$]\s*[\d,]+\.?\d*/,                                    // $29.99
+    /[£€¥₹₩₱]\s*[\d,]+\.?\d*/,                               // €29.99, £29.99, etc.
+    /(?:RM|SGD|USD|EUR|GBP|AUD|CAD|MYR|THB|PHP|IDR|VND|JPY|CNY|KRW|INR)\s*[\d,]+\.?\d*/i,  // RM 99.00
+    /[\d,]+\.?\d*\s*(?:RM|SGD|USD|EUR|GBP|AUD|CAD|MYR|THB|PHP|IDR|VND)/i,  // 99.00 RM
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[0].trim();
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Cleans product title by removing site names and unnecessary text
+ * @param {string} title - Raw title from grounding chunk
+ * @returns {string} - Cleaned title
+ */
+function cleanProductTitle(title) {
+  if (!title) return '';
+
+  // Remove common suffixes like " - Amazon.com", " | eBay", etc.
+  let cleaned = title
+    .replace(/\s*[-|–—]\s*(Amazon|eBay|Walmart|Target|Lazada|Shopee|AliExpress|Best Buy|Newegg|Etsy).*$/i, '')
+    .replace(/\s*[-|–—]\s*[A-Za-z]+\.(com|co\.[a-z]+|[a-z]+).*$/i, '')
+    .replace(/\s*\|\s*.*$/, '')
+    .trim();
+
+  // Limit length
+  if (cleaned.length > 150) {
+    cleaned = cleaned.substring(0, 150).replace(/\s+\S*$/, '...');
+  }
+
+  return cleaned;
+}
+
+/**
+ * Builds a search query from product info optimized for e-commerce results
+ * @param {Object} productInfo - Product information
+ * @param {string} userPrompt - User prompt
+ * @returns {string} - Search query
+ */
+function buildProductSearchQuery(productInfo, userPrompt) {
+  // Clean and extract meaningful product name
+  let productName = productInfo.name || '';
+
+  // Remove common non-product text from titles
+  productName = productName
+    .replace(/[-|–—].*?(official|store|shop|website|site).*$/gi, '')
+    .replace(/\s*[|–—]\s*.*$/, '')
+    .replace(/buy\s+online/gi, '')
+    .replace(/free\s+shipping/gi, '')
+    .replace(/best\s+price/gi, '')
+    .trim();
+
+  // Limit product name length for better search results
+  if (productName.length > 80) {
+    productName = productName.substring(0, 80).replace(/\s+\S*$/, '');
+  }
+
+  let query = productName;
+
+  // Extract specific store mentions from user prompt
+  const storePatterns = /(?:on|from|at|in)\s+(amazon|lazada|shopee|aliexpress|ebay|walmart|taobao|target|bestbuy|newegg|rakuten|flipkart|mercadolibre)/gi;
+  const storeMatches = userPrompt.match(storePatterns);
+
+  if (storeMatches) {
+    // User wants specific stores - search with those store names
+    const stores = storeMatches.map((m) => m.replace(/^(?:on|from|at|in)\s+/i, ''));
+    query += ' ' + stores.join(' OR ');
+  } else {
+    // Default: search for product with price indicator to get e-commerce results
+    query += ' price buy';
+  }
+
+  return query;
+}
+
+/**
+ * Parses the product search response from LLM
+ * @param {string} response - Raw LLM response
+ * @returns {Array} - Array of product objects
+ */
+function parseProductSearchResponse(response) {
+  // Clean response - remove markdown code block wrappers if present
+  let cleanedResponse = response.trim();
+  const codeBlockMatch = cleanedResponse.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/);
+  if (codeBlockMatch) {
+    cleanedResponse = codeBlockMatch[1].trim();
+  }
+
+  try {
+    // Try direct parsing first
+    const parsed = JSON.parse(cleanedResponse);
+    if (Array.isArray(parsed)) {
+      return validateProducts(parsed);
+    }
+  } catch {
+    // Direct parsing failed
+  }
+
+  // Try to extract JSON array from response
+  try {
+    const jsonMatch = cleanedResponse.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed)) {
+        return validateProducts(parsed);
+      }
+    }
+  } catch {
+    // JSON extraction failed
+  }
+
+  console.warn('[Browser Wand] parseProductSearchResponse: Failed to parse response');
+  console.warn('[Browser Wand] Raw response was:', cleanedResponse.substring(0, 500));
+  return [];
+}
+
+/**
+ * Validates and cleans product objects
+ * URL is not required as it will be matched from grounding metadata
+ * @param {Array} products - Raw product array
+ * @returns {Array} - Validated product array
+ */
+function validateProducts(products) {
+  return products
+    .filter((p) => p && typeof p === 'object' && p.title)
+    .map((p) => ({
+      title: String(p.title || '').substring(0, 200),
+      price: normalizePrice(p.price),
+      description: String(p.description || '').substring(0, 200),
+      url: String(p.url || ''),
+      source: String(p.source || (p.url ? extractSourceFromUrl(p.url) : '')),
+    }))
+    .slice(0, 10);
+}
+
+/**
+ * Normalizes price string to consistent format
+ * @param {string} price - Raw price string
+ * @returns {string} - Normalized price
+ */
+function normalizePrice(price) {
+  if (!price) return '';
+  const priceStr = String(price).trim();
+
+  // Check if it's already a valid price format
+  if (/^[$¥€£₹₩₱]?\s*[\d,]+(?:\.\d{2})?$/.test(priceStr)) {
+    return priceStr;
+  }
+  if (/^(?:RM|SGD|USD|EUR|GBP|JPY|CNY|KRW|INR|THB|VND|PHP|IDR|AUD|CAD|NZD)\s*[\d,]+(?:\.\d{2})?$/i.test(priceStr)) {
+    return priceStr;
+  }
+
+  // Try to extract price from mixed text
+  const priceMatch = priceStr.match(/(?:[$¥€£₹₩₱]|RM|SGD|USD|EUR|GBP)\s*[\d,]+(?:\.\d{2})?/i);
+  if (priceMatch) {
+    return priceMatch[0];
+  }
+
+  return priceStr;
+}
+
+/**
+ * E-commerce site patterns for URL detection
+ * Maps URL patterns to display names
+ */
+const ECOMMERCE_PATTERNS = [
+  // Global marketplaces
+  { pattern: 'amazon', name: 'Amazon' },
+  { pattern: 'ebay', name: 'eBay' },
+  { pattern: 'aliexpress', name: 'AliExpress' },
+  { pattern: 'alibaba', name: 'Alibaba' },
+  { pattern: 'etsy', name: 'Etsy' },
+  { pattern: 'wish.com', name: 'Wish' },
+  // US retailers
+  { pattern: 'walmart', name: 'Walmart' },
+  { pattern: 'target.com', name: 'Target' },
+  { pattern: 'bestbuy', name: 'Best Buy' },
+  { pattern: 'costco', name: 'Costco' },
+  { pattern: 'homedepot', name: 'Home Depot' },
+  { pattern: 'lowes.com', name: "Lowe's" },
+  { pattern: 'newegg', name: 'Newegg' },
+  { pattern: 'macys', name: "Macy's" },
+  { pattern: 'nordstrom', name: 'Nordstrom' },
+  { pattern: 'kohls', name: "Kohl's" },
+  { pattern: 'samsclub', name: "Sam's Club" },
+  { pattern: 'wayfair', name: 'Wayfair' },
+  { pattern: 'overstock', name: 'Overstock' },
+  // Southeast Asia
+  { pattern: 'lazada', name: 'Lazada' },
+  { pattern: 'shopee', name: 'Shopee' },
+  { pattern: 'tokopedia', name: 'Tokopedia' },
+  { pattern: 'bukalapak', name: 'Bukalapak' },
+  { pattern: 'blibli', name: 'Blibli' },
+  { pattern: 'zalora', name: 'Zalora' },
+  // China
+  { pattern: 'taobao', name: 'Taobao' },
+  { pattern: 'jd.com', name: 'JD.com' },
+  { pattern: 'tmall', name: 'Tmall' },
+  { pattern: 'pinduoduo', name: 'Pinduoduo' },
+  // India
+  { pattern: 'flipkart', name: 'Flipkart' },
+  { pattern: 'myntra', name: 'Myntra' },
+  { pattern: 'snapdeal', name: 'Snapdeal' },
+  // Japan/Korea
+  { pattern: 'rakuten', name: 'Rakuten' },
+  { pattern: 'yahoo.co.jp', name: 'Yahoo Japan' },
+  { pattern: 'coupang', name: 'Coupang' },
+  { pattern: 'gmarket', name: 'Gmarket' },
+  // Europe
+  { pattern: 'otto.de', name: 'Otto' },
+  { pattern: 'zalando', name: 'Zalando' },
+  { pattern: 'bol.com', name: 'Bol.com' },
+  { pattern: 'cdiscount', name: 'Cdiscount' },
+  { pattern: 'fnac', name: 'Fnac' },
+  // Latin America
+  { pattern: 'mercadolibre', name: 'MercadoLibre' },
+  { pattern: 'mercadolivre', name: 'MercadoLivre' },
+  { pattern: 'americanas', name: 'Americanas' },
+  // Others
+  { pattern: 'asos', name: 'ASOS' },
+  { pattern: 'shein', name: 'SHEIN' },
+  { pattern: 'temu', name: 'Temu' },
+  { pattern: 'banggood', name: 'Banggood' },
+  { pattern: 'gearbest', name: 'GearBest' },
+  { pattern: 'dhgate', name: 'DHgate' },
+];
+
+/**
+ * Extracts source/store name from URL
+ * @param {string} url - Product URL
+ * @returns {string} - Store name
+ */
+function extractSourceFromUrl(url) {
+  if (!url) return 'Web';
+  const urlLower = url.toLowerCase();
+
+  for (const site of ECOMMERCE_PATTERNS) {
+    if (urlLower.includes(site.pattern)) {
+      return site.name;
+    }
+  }
+
+  return 'Web';
+}
+
+/**
+ * Extracts source/store name from grounding chunk title
+ * The title often contains the website domain like "amazon.com" or "eBay"
+ * @param {string} title - Grounding chunk title
+ * @returns {string|null} - Store name or null if not detected
+ */
+function extractSourceFromTitle(title) {
+  if (!title) return null;
+  const titleLower = title.toLowerCase();
+
+  for (const site of ECOMMERCE_PATTERNS) {
+    if (titleLower.includes(site.pattern)) {
+      return site.name;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -496,4 +1474,277 @@ function splitContentIntoChunks(content, maxSize) {
   }
 
   return chunks;
+}
+
+/**
+ * Detects if the query requires image generation
+ * @param {string} query - The search/request query
+ * @returns {Object} - Detection result with isImageRequest flag and details
+ */
+export function detectImageGenerationIntent(query) {
+  const lowerQuery = query.toLowerCase();
+
+  // Patterns that indicate image generation request
+  const imageGenerationPatterns = [
+    /(?:create|generate|make|draw|design|produce)\s+(?:an?\s+)?(?:image|picture|photo|illustration|art|artwork|graphic|visual)/i,
+    /(?:image|picture|photo|illustration|art|artwork|graphic)\s+(?:of|showing|depicting|with)/i,
+    /(?:show|display|give)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration)/i,
+    /(?:visualize|illustrate)\s+/i,
+    /(?:can\s+you\s+)?(?:create|generate|make|draw)\s+/i,
+    /(?:i\s+need|i\s+want)\s+(?:an?\s+)?(?:image|picture|photo|illustration)/i,
+  ];
+
+  // Check if query matches image generation patterns
+  for (const pattern of imageGenerationPatterns) {
+    if (pattern.test(lowerQuery)) {
+      return {
+        isImageRequest: true,
+        prompt: query,
+        numberOfImages: detectImageCount(lowerQuery),
+        aspectRatio: detectAspectRatio(lowerQuery),
+      };
+    }
+  }
+
+  // Keywords that strongly indicate image generation
+  const imageKeywords = [
+    'generate image',
+    'create image',
+    'make image',
+    'draw',
+    'illustration',
+    'picture of',
+    'image of',
+    'artwork',
+    'visualize',
+  ];
+
+  for (const keyword of imageKeywords) {
+    if (lowerQuery.includes(keyword)) {
+      return {
+        isImageRequest: true,
+        prompt: query,
+        numberOfImages: detectImageCount(lowerQuery),
+        aspectRatio: detectAspectRatio(lowerQuery),
+      };
+    }
+  }
+
+  return { isImageRequest: false };
+}
+
+/**
+ * Detects requested number of images from query
+ * @param {string} query - The query string
+ * @returns {number} - Number of images to generate (1-4)
+ */
+function detectImageCount(query) {
+  const countPatterns = [
+    { pattern: /(\d+)\s+(?:images?|pictures?|photos?|illustrations?)/i, group: 1 },
+    { pattern: /(?:multiple|several|a\s+few)\s+(?:images?|pictures?)/i, count: 3 },
+    { pattern: /(?:two|2)\s+(?:images?|pictures?)/i, count: 2 },
+    { pattern: /(?:three|3)\s+(?:images?|pictures?)/i, count: 3 },
+    { pattern: /(?:four|4)\s+(?:images?|pictures?)/i, count: 4 },
+  ];
+
+  for (const { pattern, group, count } of countPatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      if (group !== undefined) {
+        const num = parseInt(match[group], 10);
+        return Math.min(Math.max(num, 1), IMAGE_GENERATION_CONFIG.maxImages);
+      }
+      return count;
+    }
+  }
+
+  return 1; // Default to 1 image
+}
+
+/**
+ * Detects requested aspect ratio from query
+ * @param {string} query - The query string
+ * @returns {string} - Aspect ratio string
+ */
+function detectAspectRatio(query) {
+  const ratioPatterns = [
+    { pattern: /(?:landscape|wide|horizontal)/i, ratio: '16:9' },
+    { pattern: /(?:portrait|tall|vertical)/i, ratio: '9:16' },
+    { pattern: /(?:square)/i, ratio: '1:1' },
+    { pattern: /(?:ultrawide|cinematic)/i, ratio: '21:9' },
+    { pattern: /(\d+:\d+)/i, group: 1 },
+  ];
+
+  for (const { pattern, ratio, group } of ratioPatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      if (group !== undefined) {
+        const requestedRatio = match[group];
+        if (IMAGE_GENERATION_CONFIG.supportedAspectRatios.includes(requestedRatio)) {
+          return requestedRatio;
+        }
+      }
+      return ratio;
+    }
+  }
+
+  return IMAGE_GENERATION_CONFIG.defaultAspectRatio;
+}
+
+/**
+ * Generates images using the Nano Banana Pro (Gemini 3 Pro Image Preview) model
+ * @param {string} apiKey - API key for authentication
+ * @param {string} prompt - The image generation prompt
+ * @param {Object} options - Generation options
+ * @param {number} options.numberOfImages - Number of images to generate (1-4)
+ * @param {string} options.aspectRatio - Aspect ratio (e.g., '1:1', '16:9')
+ * @param {string} options.imageSize - Image size ('1K', '2K', '4K')
+ * @returns {Promise<Object>} - Generated images with metadata
+ */
+export async function generateImages(apiKey, prompt, options = {}) {
+  const {
+    numberOfImages = 1,
+    aspectRatio = IMAGE_GENERATION_CONFIG.defaultAspectRatio,
+    imageSize = IMAGE_GENERATION_CONFIG.defaultImageSize,
+  } = options;
+
+  const modelId = IMAGE_GENERATION_CONFIG.model;
+  const apiUrl = `${API_CONFIG.baseUrl}/models/${modelId}:generateContent?key=${apiKey}`;
+
+  console.log('[Browser Wand] generateImages:', {
+    prompt: prompt.substring(0, 100),
+    numberOfImages,
+    aspectRatio,
+    imageSize,
+  });
+
+  // Build enhanced prompt for better image generation
+  const enhancedPrompt = buildImagePrompt(prompt, numberOfImages);
+
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: enhancedPrompt }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: {
+        aspectRatio: aspectRatio,
+        imageSize: imageSize,
+      },
+    },
+  };
+
+  console.log('[Browser Wand] generateImages: Calling Gemini Image API...');
+
+  let response;
+  try {
+    response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+  } catch (fetchError) {
+    console.error('[Browser Wand] generateImages Fetch Error:', fetchError);
+    throw new Error(`Network error: ${fetchError.message}`);
+  }
+
+  console.log('[Browser Wand] generateImages Response Status:', response.status);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('[Browser Wand] generateImages API Error:', errorText);
+    throw new Error(`Image generation API request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  console.log('[Browser Wand] generateImages: Response received');
+
+  return parseImageGenerationResponse(data, prompt);
+}
+
+/**
+ * Builds an enhanced prompt for image generation
+ * @param {string} userPrompt - Original user prompt
+ * @param {number} numberOfImages - Number of images requested
+ * @returns {string} - Enhanced prompt
+ */
+function buildImagePrompt(userPrompt, numberOfImages) {
+  // Clean up the prompt - remove meta instructions
+  let cleanPrompt = userPrompt
+    .replace(/(?:create|generate|make|draw|design|produce)\s+(?:an?\s+)?(?:image|picture|photo|illustration|art|artwork|graphic|visual)\s+(?:of\s+)?/gi, '')
+    .replace(/(?:show|display|give)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration)\s+(?:of\s+)?/gi, '')
+    .trim();
+
+  // If prompt became empty, use the original
+  if (!cleanPrompt) {
+    cleanPrompt = userPrompt;
+  }
+
+  // Add style guidance if not present
+  const hasStyleGuidance = /(?:style|realistic|cartoon|artistic|photorealistic|digital art|oil painting|watercolor)/i.test(cleanPrompt);
+
+  if (!hasStyleGuidance) {
+    cleanPrompt = `High quality, detailed image of: ${cleanPrompt}`;
+  }
+
+  // Request multiple images if needed
+  if (numberOfImages > 1) {
+    cleanPrompt = `Generate ${numberOfImages} different variations of: ${cleanPrompt}`;
+  }
+
+  return cleanPrompt;
+}
+
+/**
+ * Parses the image generation response from Gemini API
+ * @param {Object} data - API response data
+ * @param {string} originalPrompt - Original user prompt
+ * @returns {Object} - Parsed result with images
+ */
+function parseImageGenerationResponse(data, originalPrompt) {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    console.warn('[Browser Wand] parseImageGenerationResponse: No candidates in response');
+    return {
+      type: 'image_generation',
+      success: false,
+      error: 'No images generated',
+      images: [],
+      prompt: originalPrompt,
+    };
+  }
+
+  const parts = candidate.content?.parts || [];
+  const images = [];
+  let textContent = '';
+
+  for (const part of parts) {
+    if (part.inlineData) {
+      // Image data (base64 encoded)
+      images.push({
+        data: part.inlineData.data,
+        mimeType: part.inlineData.mimeType || 'image/png',
+      });
+    } else if (part.text) {
+      textContent += part.text;
+    }
+  }
+
+  console.log('[Browser Wand] parseImageGenerationResponse:', {
+    imagesCount: images.length,
+    hasText: !!textContent,
+  });
+
+  return {
+    type: 'image_generation',
+    success: images.length > 0,
+    images: images,
+    description: textContent || `Generated ${images.length} image(s) for: ${originalPrompt}`,
+    prompt: originalPrompt,
+  };
 }

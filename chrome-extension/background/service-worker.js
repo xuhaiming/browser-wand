@@ -12,6 +12,7 @@ console.log('[Browser Wand] Service Worker imports loaded successfully');
 const MESSAGE_TYPES = {
   MODIFY_PAGE: 'MODIFY_PAGE',
   EXECUTE_CODE: 'EXECUTE_CODE',
+  LOAD_EXTERNAL_SCRIPT: 'LOAD_EXTERNAL_SCRIPT',
 };
 
 /**
@@ -54,6 +55,34 @@ async function executeCodeInPage(tabId, code) {
     return { success: true };
   } catch (error) {
     console.error('[Browser Wand] executeCodeInPage error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Loads an external script into the page's main world
+ * Fetches the script content and injects it to bypass CSP
+ * @param {number} tabId - The tab ID to load the script in
+ * @param {string} url - The URL of the script to load
+ * @returns {Promise<Object>} - Result indicating success or failure
+ */
+async function loadExternalScript(tabId, url) {
+  try {
+    console.log('[Browser Wand] Fetching external script:', url);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch script: ${response.status} ${response.statusText}`);
+    }
+
+    const scriptContent = await response.text();
+    console.log('[Browser Wand] Script fetched, size:', scriptContent.length);
+
+    // Execute the script content in the page's main world
+    const result = await executeCodeInPage(tabId, scriptContent);
+    return result;
+  } catch (error) {
+    console.error('[Browser Wand] loadExternalScript error:', error);
     return { success: false, error: error.message };
   }
 }
@@ -117,6 +146,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(result);
       } catch (error) {
         console.error('[Browser Wand] EXECUTE_CODE error:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
+  }
+
+  // Handle LOAD_EXTERNAL_SCRIPT - fetches and injects external scripts
+  if (message.type === MESSAGE_TYPES.LOAD_EXTERNAL_SCRIPT) {
+    (async () => {
+      try {
+        const tabId = sender.tab?.id;
+        if (!tabId) {
+          sendResponse({ success: false, error: 'No tab ID available' });
+          return;
+        }
+        const result = await loadExternalScript(tabId, message.payload.url);
+        sendResponse(result);
+      } catch (error) {
+        console.error('[Browser Wand] LOAD_EXTERNAL_SCRIPT error:', error);
         sendResponse({ success: false, error: error.message });
       }
     })();

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Browser Wand",
   "version": "1.0.0",
-  "description": "Read browser content and modify elements using AI",
+  "description": "Read browser content and modify elements using AI with eye/hand tracking focus mode",
   "permissions": [
     "activeTab",
     "scripting",
@@ -33,6 +33,12 @@
       "matches": ["<all_urls>"],
       "js": ["content/content.js"],
       "css": ["content/content.css"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/focus-tracker.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

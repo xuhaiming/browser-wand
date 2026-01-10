@@ -37,7 +37,9 @@
         sendResponse({ success: true });
         break;
       default:
-        sendResponse({ error: 'Unknown message type' });
+        // Don't respond to unknown message types - let other listeners handle them
+        // (e.g., focus-tracker.js handles START_FOCUS_MODE, STOP_FOCUS_MODE, GET_FOCUS_STATUS)
+        return false;
     }
     return true;
   });

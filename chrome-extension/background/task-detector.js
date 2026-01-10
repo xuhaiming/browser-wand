@@ -39,6 +39,56 @@ const COMMENT_KEYWORDS = ['comment', 'discussion', 'disqus', 'reply', 'replies']
 const STYLING_KEYWORDS = ['dark', 'light', 'theme', 'color', 'background', 'font'];
 const CONTENT_PROTECTION_KEYWORDS = ['article', 'content', 'main', 'text', 'story'];
 
+const THEMATIC_RESKINNING_PATTERNS = [
+  /(?:make|turn|transform|convert|style|reskin|restyle)\s+(?:this|the)?\s*(?:page|site|website)?\s*(?:look|appear|seem)?\s*(?:like|into|as)\s+(?:a\s+)?(?:\d+s\s+)?(?:cyberpunk|retro|vintage|hacker|terminal|matrix|neon|synthwave|vaporwave|steampunk|gothic|medieval|futuristic|sci[\s-]?fi|newspaper|magazine|comic|cartoon|anime|children'?s?\s*book|storybook|fairy\s*tale|minimalist|brutalist|art\s*deco|art\s*nouveau|victorian|renaissance|baroque|pixel|8[\s-]?bit|90s|80s|70s|60s|nostalgic|old[\s-]?school|grunge|punk|pastel|cozy|warm|cold|dark|horror|spooky|halloween|christmas|festive|tropical|beach|forest|nature|ocean|space|cosmic|galactic)/i,
+  /(?:cyberpunk|retro|vintage|hacker|terminal|matrix|neon|synthwave|vaporwave|steampunk|gothic|medieval|futuristic|sci[\s-]?fi|newspaper|magazine|comic|cartoon|anime|children'?s?\s*book|storybook|fairy\s*tale|minimalist|brutalist|art\s*deco|art\s*nouveau|victorian|renaissance|baroque|pixel|8[\s-]?bit|90s|80s|70s|60s|nostalgic|old[\s-]?school|grunge|punk|pastel|cozy|warm|cold|dark|horror|spooky|halloween|christmas|festive|tropical|beach|forest|nature|ocean|space|cosmic|galactic)\s+(?:style|theme|look|aesthetic|vibe|mood|feel|design|reskin)/i,
+  /(?:reskin|restyle|makeover|redesign|overhaul|transform)\s+(?:this|the)?\s*(?:page|site|website)?\s*(?:to|with|using|in)\s+(?:a\s+)?(?:\w+\s+)?(?:style|theme|aesthetic|vibe|mood|look)/i,
+  /(?:give|apply|add)\s+(?:this|the)?\s*(?:page|site|website)?\s*(?:a\s+)?(?:\w+\s+)?(?:makeover|reskin|aesthetic|vibe|theme)/i,
+  /(?:boring|plain|dull)\s+(?:\w+\s+)*(?:look|appear|seem)\s+(?:like|as)/i,
+];
+
+const THEMATIC_RESKINNING_KEYWORDS = [
+  'look like a',
+  'style like',
+  'reskin',
+  'restyle',
+  'makeover',
+  'aesthetic',
+  'vibe',
+  'era',
+  'mood',
+  'cyberpunk',
+  'hacker terminal',
+  'retro',
+  'vintage newspaper',
+  'children\'s book',
+  'storybook',
+  'comic book',
+  'newspaper style',
+  'magazine style',
+  '90s website',
+  '80s style',
+  'neon',
+  'synthwave',
+  'vaporwave',
+  'steampunk',
+  'gothic',
+  'medieval',
+  'futuristic',
+  'sci-fi',
+  'matrix',
+  'terminal style',
+  'pixel art',
+  '8-bit',
+  'art deco',
+  'minimalist',
+  'brutalist',
+  'cozy',
+  'warm aesthetic',
+  'dark aesthetic',
+  'pastel',
+];
+
 const TRANSLATION_PATTERNS = [
   /translat(?:e|ion)\s+(?:to|into|in)\s+(\w+)/i,
   /(?:show|add|display|put)\s+(?:the\s+)?(\w+)\s+translation/i,
@@ -106,6 +156,86 @@ const ANALYZE_KEYWORDS = [
   'tell me about',
   'what does',
   'how does',
+];
+
+const MAGIC_BAR_PATTERNS = [
+  // Product search patterns
+  /(?:show|find|search|display|get)\s+(?:similar|related|comparable|equivalent)\s+(?:products?|items?)/i,
+  /(?:compare|comparison)\s+(?:prices?|products?)\s+(?:from|on|with)\s+(?:other|different)\s+(?:sites?|websites?|stores?|shops?|platforms?)/i,
+  /(?:similar|related)\s+(?:products?|items?)\s+(?:from|on)\s+(?:other|different)\s+(?:sites?|websites?|stores?|shops?)/i,
+  /(?:find|search|show|display)\s+(?:this|the)\s+(?:product|item)\s+(?:on|from|in)\s+(?:other|different)\s+(?:sites?|websites?|stores?)/i,
+  /(?:cross[\s-]?site|multi[\s-]?site)\s+(?:product|price)\s+(?:comparison|search)/i,
+  /(?:price|product)\s+(?:comparison|compare)\s+(?:across|between)\s+(?:sites?|websites?|stores?)/i,
+  /(?:find|show|display)\s+(?:alternatives?|competitors?)/i,
+  /(?:related|similar)\s+(?:from|on)\s+(?:amazon|lazada|shopee|aliexpress|ebay|walmart|taobao|jd\.com)/i,
+  // Generic web search patterns
+  /(?:magic\s*bar|web\s*search|online\s*search|google\s*search|search\s*online|search\s*the\s*web)/i,
+  /(?:search|find|look\s*up|lookup)\s+(?:for|about)?\s*(?:information|info|details|data)\s+(?:on|about)/i,
+  /(?:what\s+(?:is|are)|who\s+(?:is|are)|when\s+(?:is|was|did)|where\s+(?:is|are)|how\s+(?:to|do|does|did))\s+.{3,}/i,
+  /(?:find|search|get|show)\s+(?:me\s+)?(?:the\s+)?(?:latest|recent|current|new)\s+(?:news|information|updates?|articles?)/i,
+  /(?:look\s*up|search\s*for|find)\s+(?:on\s+)?(?:the\s+)?(?:internet|web|online)/i,
+  // More flexible news/information search patterns
+  /(?:find|search|get|show)\s+(?:me\s+)?(?:\w+\s+)?(?:news|articles?|stories?|posts?|updates?)\s+(?:about|on|for|related)/i,
+  /(?:find|search|get|show)\s+(?:me\s+)?(?:relevant|related|similar|more)\s+(?:news|articles?|stories?|information|content)/i,
+  // Image generation patterns
+  /(?:create|generate|make|draw|design|produce)\s+(?:an?\s+)?(?:image|picture|photo|illustration|art|artwork|graphic|visual)/i,
+  /(?:image|picture|photo|illustration|art|artwork|graphic)\s+(?:of|showing|depicting|with)/i,
+  /(?:show|display|give)\s+(?:me\s+)?(?:an?\s+)?(?:image|picture|photo|illustration)/i,
+  /(?:visualize|illustrate)\s+/i,
+  // General question patterns
+  /(?:tell\s+me\s+about|explain|describe)\s+.{3,}/i,
+  /(?:best|top|recommended)\s+[\w\s]+(?:for|to|in)/i,
+  /(?:how\s+(?:can|do|should)\s+i)\s+/i,
+  /(?:what\s+(?:should|can|would))\s+/i,
+  /(?:tips|advice|suggestions?|recommendations?)\s+(?:for|on|about)/i,
+];
+
+const MAGIC_BAR_KEYWORDS = [
+  // Product search keywords
+  'similar products',
+  'related products',
+  'compare prices',
+  'price comparison',
+  'cross-site comparison',
+  'find alternatives',
+  'competitor products',
+  'product comparison',
+  // Generic search keywords
+  'magic bar',
+  'web search',
+  'search online',
+  'search the web',
+  'look up',
+  'find information',
+  'search for',
+  // News/content search keywords
+  'relevant news',
+  'related news',
+  'similar news',
+  'more news',
+  'find news',
+  'related articles',
+  'similar articles',
+  // Image generation keywords
+  'generate image',
+  'create image',
+  'make image',
+  'draw',
+  'illustration',
+  'picture of',
+  'image of',
+  'artwork',
+  'visualize',
+  // General query keywords
+  'best',
+  'top rated',
+  'recommended',
+  'tips for',
+  'how to',
+  'what is',
+  'who is',
+  'latest news',
+  'reviews',
 ];
 
 const TRANSLATION_KEYWORDS = [
@@ -262,6 +392,46 @@ function isAnalyzeRequest(prompt) {
 }
 
 /**
+ * Checks if the prompt is a Magic Bar search request
+ * Magic Bar is a universal search feature that uses Google Search grounding
+ */
+function isMagicBarRequest(prompt) {
+  for (const pattern of MAGIC_BAR_PATTERNS) {
+    if (pattern.test(prompt)) {
+      return true;
+    }
+  }
+
+  for (const keyword of MAGIC_BAR_KEYWORDS) {
+    if (prompt.includes(keyword)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Checks if the prompt is a thematic reskinning request
+ * (transforming the page to match a specific mood, era, or aesthetic)
+ */
+function isThematicReskinningRequest(prompt) {
+  for (const pattern of THEMATIC_RESKINNING_PATTERNS) {
+    if (pattern.test(prompt)) {
+      return true;
+    }
+  }
+
+  for (const keyword of THEMATIC_RESKINNING_KEYWORDS) {
+    if (prompt.includes(keyword)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Extracts target language from the prompt
  * @param {string} prompt - The user's request
  * @returns {string|null} - The detected target language or null
@@ -296,52 +466,62 @@ export function extractTargetLanguage(prompt) {
 export function detectTaskType(prompt) {
   const lowerPrompt = prompt.toLowerCase();
 
-  // Priority 1: Translation request (check first as it's a specific feature)
+  // Priority 1: Magic Bar request (universal web search feature)
+  if (isMagicBarRequest(lowerPrompt)) {
+    return TASK_TYPES.MAGIC_BAR;
+  }
+
+  // Priority 2: Translation request
   if (isTranslationRequest(lowerPrompt)) {
     return TASK_TYPES.TRANSLATION;
   }
 
-  // Priority 2: Summarize request
+  // Priority 3: Summarize request
   if (isSummarizeRequest(lowerPrompt)) {
     return TASK_TYPES.SUMMARIZE;
   }
 
-  // Priority 3: Analyze request (questions and analysis about the page)
+  // Priority 4: Analyze request (questions and analysis about the page)
   if (isAnalyzeRequest(lowerPrompt)) {
     return TASK_TYPES.ANALYZE;
   }
 
-  // Priority 4: Content extraction (most specific)
+  // Priority 5: Content extraction (most specific)
   if (isContentExtractionRequest(lowerPrompt)) {
     return TASK_TYPES.CONTENT_EXTRACTION;
   }
 
-  // Priority 5: Remove except pattern (treat as content extraction)
+  // Priority 6: Remove except pattern (treat as content extraction)
   if (isRemoveExceptPattern(lowerPrompt)) {
     return TASK_TYPES.CONTENT_EXTRACTION;
   }
 
-  // Priority 6: Ad removal
+  // Priority 7: Ad removal
   if (containsKeyword(lowerPrompt, AD_KEYWORDS)) {
     return TASK_TYPES.AD_REMOVAL;
   }
 
-  // Priority 7: Comment removal
+  // Priority 8: Comment removal
   if (containsKeyword(lowerPrompt, COMMENT_KEYWORDS)) {
     return TASK_TYPES.COMMENT_REMOVAL;
   }
 
-  // Priority 8: Styling changes
+  // Priority 9: Thematic reskinning (check before basic styling - more specific)
+  if (isThematicReskinningRequest(lowerPrompt)) {
+    return TASK_TYPES.THEMATIC_RESKINNING;
+  }
+
+  // Priority 10: Styling changes
   if (containsKeyword(lowerPrompt, STYLING_KEYWORDS)) {
     return TASK_TYPES.STYLING;
   }
 
-  // Priority 9: Element hiding (non-content related)
+  // Priority 11: Element hiding (non-content related)
   if (isElementHidingRequest(lowerPrompt)) {
     return TASK_TYPES.ELEMENT_HIDING;
   }
 
-  // Priority 10: General hiding requests
+  // Priority 12: General hiding requests
   if (isGeneralHidingRequest(lowerPrompt)) {
     return TASK_TYPES.ELEMENT_HIDING;
   }

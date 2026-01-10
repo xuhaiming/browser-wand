@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser Wand</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="title">Browser Wand</h1>
+      <p class="subtitle">AI-powered page modifier</p>
+    </header>
+
+    <div class="settings-section">
+      <button id="settingsToggle" class="settings-toggle">
+        <span class="settings-icon">⚙️</span>
+        <span>Settings</span>
+      </button>
+      <div id="settingsPanel" class="settings-panel hidden">
+        <label class="input-label">API Key</label>
+        <input type="password" id="apiKey" class="input-field" placeholder="Enter your API key">
+        <button id="saveSettings" class="btn btn-secondary">Save Settings</button>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <label class="input-label">What would you like to modify?</label>
+      <textarea
+        id="userPrompt"
+        class="prompt-input"
+        placeholder="e.g., Change all buttons to have a blue background, or Hide all advertisement elements, or Make the header text larger..."
+        rows="4"
+      ></textarea>
+
+      <div class="action-buttons">
+        <button id="modifyBtn" class="btn btn-primary">
+          <span class="btn-icon">✨</span>
+          Modify Page
+        </button>
+        <button id="resetBtn" class="btn btn-secondary">
+          <span class="btn-icon">↩️</span>
+          Reset Changes
+        </button>
+      </div>
+    </div>
+
+    <div id="statusSection" class="status-section hidden">
+      <div class="status-header">
+        <span id="statusIcon" class="status-icon">⏳</span>
+        <span id="statusText" class="status-text">Processing...</span>
+      </div>
+      <div id="statusDetails" class="status-details"></div>
+    </div>
+
+    <div id="resultSection" class="result-section hidden">
+      <div class="result-header">
+        <label class="input-label">AI Response</label>
+        <button id="saveScriptBtn" class="btn btn-save hidden" title="Save this script for reuse">
+          <span class="btn-icon">💾</span>
+          Save
+        </button>
+      </div>
+      <div id="resultContent" class="result-content"></div>
+    </div>
+
+    <div id="savedScriptsSection" class="saved-scripts-section">
+      <button id="savedScriptsToggle" class="saved-scripts-toggle">
+        <span class="toggle-icon">📚</span>
+        <span>Saved Scripts</span>
+        <span id="savedScriptsCount" class="scripts-count">0</span>
+      </button>
+      <div id="savedScriptsPanel" class="saved-scripts-panel hidden">
+        <div id="savedScriptsList" class="saved-scripts-list">
+          <div class="empty-scripts-message">No saved scripts yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="saveScriptModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Save Script</h3>
+      </div>
+      <div class="modal-body">
+        <label class="input-label" for="scriptNameInput">Script Name</label>
+        <input type="text" id="scriptNameInput" class="input-field" placeholder="Enter a name for this script" maxlength="100">
+      </div>
+      <div class="modal-footer">
+        <button id="cancelSaveBtn" class="btn btn-secondary">Cancel</button>
+        <button id="confirmSaveBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Icon Generator</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { border: 1px solid #ccc; margin: 10px; }
+    .download-links { margin-top: 20px; }
+    .download-links a { margin-right: 15px; }
+  </style>
+</head>
+<body>
+  <h1>Browser Wand Icon Generator</h1>
+  <p>Right-click on each canvas and save as PNG, or use the download links below.</p>
+
+  <div>
+    <h3>16x16</h3>
+    <canvas id="icon16" width="16" height="16"></canvas>
+  </div>
+  <div>
+    <h3>48x48</h3>
+    <canvas id="icon48" width="48" height="48"></canvas>
+  </div>
+  <div>
+    <h3>128x128</h3>
+    <canvas id="icon128" width="128" height="128"></canvas>
+  </div>
+
+  <div class="download-links">
+    <a id="link16" download="icon16.png">Download 16x16</a>
+    <a id="link48" download="icon48.png">Download 48x48</a>
+    <a id="link128" download="icon128.png">Download 128x128</a>
+  </div>
+
+  <script>
+    function drawIcon(canvasId, size) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+
+      // Create gradient
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#667eea');
+      gradient.addColorStop(1, '#764ba2');
+
+      // Draw rounded rectangle
+      const radius = size * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Draw wand shape (diamond)
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      const cx = size / 2;
+      const top = size * 0.15;
+      const bottom = size * 0.65;
+      const width = size * 0.2;
+      ctx.moveTo(cx, top);
+      ctx.lineTo(cx + width, (top + bottom) / 2);
+      ctx.lineTo(cx, bottom);
+      ctx.lineTo(cx - width, (top + bottom) / 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Draw circle at bottom (sparkle)
+      ctx.beginPath();
+      ctx.arc(cx, size * 0.8, size * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Add small sparkles for larger sizes
+      if (size >= 48) {
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(size * 0.28, size * 0.5, size * 0.04, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(size * 0.72, size * 0.5, size * 0.04, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      return canvas.toDataURL('image/png');
+    }
+
+    // Draw all icons
+    const data16 = drawIcon('icon16', 16);
+    const data48 = drawIcon('icon48', 48);
+    const data128 = drawIcon('icon128', 128);
+
+    // Set download links
+    document.getElementById('link16').href = data16;
+    document.getElementById('link48').href = data48;
+    document.getElementById('link128').href = data128;
+
+    // Log base64 data for reference
+    console.log('Icon 16:', data16);
+    console.log('Icon 48:', data48);
+    console.log('Icon 128:', data128);
+  </script>
+</body>
+</html>

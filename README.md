@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <a href="#demo">Demo</a> •
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
   <a href="#usage">Usage</a> •
@@ -23,22 +22,6 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="MIT License">
   <img src="https://img.shields.io/badge/Version-1.0.0-orange?style=flat-square" alt="Version 1.0.0">
 </p>
-
----
-
-## Demo
-
-<p align="center">
-  <a href="https://drive.google.com/file/d/1prZ0hSwCUc07Fo01dTC6FulAgcwp-w-P/view?usp=drive_link">
-    <img src="https://drive.google.com/thumbnail?id=1prZ0hSwCUc07Fo01dTC6FulAgcwp-w-P&sz=w1280" alt="Browser Wand Demo Video" width="720">
-  </a>
-</p>
-
-<p align="center">
-  <em>Click the image above to watch the demo video</em>
-</p>
-
----
 
 ## The Era of Static Browsing is Over
 
